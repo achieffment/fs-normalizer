@@ -78,13 +78,10 @@ def _win_folder_dialog(initial: str | None = None) -> str | None:
     # В WSL пользовательские переменные окружения не попадают в Windows-процессы
     # (powershell.exe), пока они не перечислены в WSLENV. Без флага значение
     # передаётся как есть — UNC-путь уже в Windows-формате, переводить его не нужно.
-    shared = ["FSNORM_TITLE"] + (["FSNORM_INITIAL"] if initial else [])
-    wslenv = [
-        e
-        for e in env.get("WSLENV", "").split(":")
-        if e and e.split("/", 1)[0] not in {"FSNORM_TITLE", "FSNORM_INITIAL"}
-    ]
-    env["WSLENV"] = ":".join(wslenv + shared)
+    shar = ["FSNORM_TITLE"] + (["FSNORM_INITIAL"] if initial else [])
+    mang = {"FSNORM_TITLE", "FSNORM_INITIAL"}
+    kept = [e for e in env.get("WSLENV", "").split(":") if e and e.split("/", 1)[0] not in mang]
+    env["WSLENV"] = ":".join(kept + shar)
     try:
         dialog = subprocess.run(
             [powershell, "-NoProfile", "-STA", "-Command", script],
@@ -186,10 +183,10 @@ def _pick_directory() -> str:
     """
     cwd = os.getcwd()
     if _is_win():
-        win_path = _win_folder_dialog(cwd)
-        if win_path is None:
+        path = _win_folder_dialog(cwd)
+        if path is None:
             return _prompt_directory("Проводник Windows недоступен.", default=cwd)
-        return win_path  # путь или "" (отмена)
+        return path  # путь или "" (отмена)
     if _is_mac():
         path = _mac_folder_dialog(cwd)
         if path is None:
@@ -204,10 +201,10 @@ def _pick_directory() -> str:
             return _prompt_directory("Проводник Windows недоступен.", default=cwd)
         if not win_path:
             return ""  # пользователь отменил выбор
-        converted = _to_wsl_path(win_path)
-        if converted is None:
+        con = _to_wsl_path(win_path)
+        if con is None:
             return _prompt_directory("Не удалось преобразовать путь Windows.", default=cwd)
-        return converted
+        return con
     # Обычный Linux: ввод пути в терминале с дефолтом = каталог вызова.
     return _prompt_directory("Укажите каталог для нормализации.", default=cwd)
 
