@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Обёртка для Linux/macOS: при первом запуске готовит .venv и зависимости, затем запускает normalize_fs.py.
+# Кликабельная обёртка для macOS (Finder): при первом запуске готовит .venv и зависимости, затем запускает normalize_fs.py.
 set -euo pipefail
 
 fold="$(cd -- "$(dirname -- "$0")" && pwd)"
