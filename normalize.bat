@@ -12,9 +12,25 @@ goto run
 
 :setup
 echo Подготовка окружения (.venv)...
+if exist "%fold%.venv" rmdir /s /q "%fold%.venv"
 python -m venv "%fold%.venv"
+if errorlevel 1 goto venvfail
 "%pyex%" -m pip install -r "%fold%requirements.txt"
+if errorlevel 1 goto pipfail
+goto run
+
+:venvfail
+echo Не удалось создать .venv (возможно, временный сбой сети). Повторите запуск.
+if exist "%fold%.venv" rmdir /s /q "%fold%.venv"
+goto end
+
+:pipfail
+echo Не удалось установить зависимости (возможно, временный сбой сети). Повторите запуск.
+if exist "%fold%.venv" rmdir /s /q "%fold%.venv"
+goto end
 
 :run
 "%pyex%" "%fold%normalize_fs.py" %*
+
+:end
 pause
