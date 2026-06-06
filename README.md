@@ -6,9 +6,10 @@ CLI-утилита для рекурсивной нормализации имё
 
 - Рекурсивный обход каталога с переименованием файлов и папок.
 - Транслитерация не-ASCII символов (кириллица, умляуты, emoji и т.п.) в ASCII. Мягкий и твёрдый знаки (`ь`/`ъ`) удаляются, а не превращаются в апостроф; запрещённые в именах файлов Windows символы (`< > : " | ? *`), которые может породить транслитерация типографики (`«»`→`<<`/`>>`), вырезаются.
+- Обработка круглых и квадратных скобок: с числом (дубли файловых менеджеров `Файл (1)`, `Файл [1]`) — скобки вырезаются, число дополняется ведущим нулём (→ `fail-01`); с текстом (`инн (Нового договора нет)`) — скобки сохраняются. Непарные/несовпадающие скобки (`Файл (1`, `инн (текст]`) вырезаются как невалидные.
 - Распознавание дат в разных форматах и приведение к ISO (`YYYY-MM-DD`) с плейсхолдерами `00` для недостающих компонентов.
 - Ведущий ноль для однозначных числовых токенов (`1_file` → `01_file`).
-- Пробелы → дефис, обрезка «мусора» по краям имени (у файлов сохраняется ведущий `_`), единый регистр (папки — с заглавной, файлы — в нижнем; общепринятые имена вроде `README` сохраняют регистр).
+- Пробелы → дефис; цепочки дефисов вокруг пробелов схлопываются в один (`Резюме - подготовка` → `reziume-podgotovka`), но намеренные дефисы без пробелов сохраняются (`file--improved`). Обрезка «мусора» по краям имени (у файлов сохраняется ведущий `_`, на краю сохраняется парная круглая скобка), единый регистр (папки — с заглавной, файлы — в нижнем; общепринятые имена вроде `README` сохраняют регистр).
 - Расширение файла не изменяется.
 - Скрытые файлы и папки (начинающиеся с `.`) пропускаются и не обходятся.
 - Корневой каталог не переименовывается.
@@ -20,20 +21,20 @@ CLI-утилита для рекурсивной нормализации имё
 
 ```text
 fs-normalizer/
-├── normalize_fs.py          # точка входа
-├── normalize.sh             # обёртка для Linux/macOS (терминал)
-├── normalize.command        # обёртка для macOS (двойной клик в Finder)
-├── normalize.bat            # обёртка для Windows
+├── normalize_fs.py                   # точка входа
+├── normalize.sh                      # обёртка для Linux/macOS (терминал)
+├── normalize.command                 # обёртка для macOS (двойной клик в Finder)
+├── normalize.bat                     # обёртка для Windows
 ├── normalizer/
-│   ├── __init__.py          # публичное API
-│   ├── cli.py               # разбор аргументов, выбор каталога, сценарий запуска
-│   ├── pick_folder.ps1      # нативный диалог выбора папки Windows (IFileOpenDialog)
-│   ├── filesystem.py        # обход ФС и применение переименований (deepest-first)
-│   ├── name.py              # сборка нового имени из конвейера правил
-│   └── rules.py             # правила нормализации
-├── tests/                   # тесты (pytest)
-├── examples/                # песочница-фикстуры для ручного прогона
-│   └── reset.sh/.command/.bat  # откат прогона по examples/ (git checkout + git clean)
+│   ├── __init__.py                   # публичное API
+│   ├── cli.py                        # разбор аргументов, выбор каталога, сценарий запуска
+│   ├── pick_folder.ps1               # нативный диалог выбора папки Windows (IFileOpenDialog)
+│   ├── filesystem.py                 # обход ФС и применение переименований (deepest-first)
+│   ├── name.py                       # сборка нового имени из конвейера правил
+│   └── rules.py                      # правила нормализации
+├── tests/                            # тесты (pytest)
+├── examples/                         # песочница-фикстуры для ручного прогона
+│   └── reset.sh/.command/.bat    # откат прогона по examples/ (git checkout + git clean)
 └── requirements.txt
 ```
 
@@ -51,7 +52,7 @@ fs-normalizer/
 ```bash
 cd fs-normalizer
 python3 -m venv .venv
-source .venv/bin/activate           # Windows: .venv\Scripts\activate
+source .venv/bin/activate    # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
@@ -60,8 +61,8 @@ pip install -r requirements.txt
 Проще всего — через обёртку для своей ОС. При первом запуске она автоматически подготовит окружение (`.venv` + зависимости), затем запустит утилиту:
 
 ```bash
-./normalize.bat       # Windows
-./normalize.sh        # Linux/macOS (терминал)
+./normalize.bat    # Windows
+./normalize.sh     # Linux/macOS (терминал)
 ```
 
 На macOS для запуска двойным кликом в Finder используйте `normalize.command` (один раз сделайте его исполняемым: `chmod +x normalize.command`).
@@ -110,11 +111,12 @@ function fsnorm { & "C:\path\to\fs-normalizer\normalize.bat" @args }
 | # | Правило | Что делает |
 |---|---------|------------|
 | 1 | `TransliterationRule` | Любой не-ASCII символ → ASCII (мягкий/твёрдый знаки `ь`/`ъ` удаляются, а не дают апостроф); разделители пути (`/`, `\`) и управляющие символы, которые может породить транслитерация (`½`→`1/2`, `∖`→`\`, U+2028→перевод строки), заменяются на `-`, чтобы имя осталось одним компонентом пути; запрещённые на Windows символы (`< > : " | ? *`, например из `«»`→`<<`/`>>`) вырезаются |
-| 2 | `DateRule` | Даты → ISO `YYYY-MM-DD`; недостающие части → `00` |
-| 3 | `LeadingZeroRule` | Однозначный числовой токен → с ведущим нулём |
-| 4 | `SpaceToDashRule` | Пробелы (и их повторы) → одиночный дефис |
-| 5 | `TrimEdgeRule` | Обрезка не буквенно-цифровых символов по краям (у файлов сохраняется ведущий `_`) |
-| 6 | `CaseRule` | Папки — с заглавной буквы, файлы — в нижнем регистре (кроме общепринятых имён вроде `README`, чей регистр сохраняется) |
+| 2 | `BracketsRule` | Круглые и квадратные скобки с числом/датой (без букв) → убираются (`(1)`/`[1]`→`1`, дальше ведущий ноль); скобки с текстом → сохраняются; непарные/несовпадающие → вырезаются |
+| 3 | `DateRule` | Даты → ISO `YYYY-MM-DD`; недостающие части → `00` |
+| 4 | `LeadingZeroRule` | Однозначный числовой токен → с ведущим нулём |
+| 5 | `SpaceToDashRule` | Пробелы → дефис; цепочки дефисов вокруг пробелов схлопываются в один, но намеренные дефисы без пробелов (`file--improved`) сохраняются |
+| 6 | `TrimEdgeRule` | Обрезка не буквенно-цифровых символов по краям (у файлов сохраняется ведущий `_`; парная скобка на краю сохраняется) |
+| 7 | `CaseRule` | Папки — с заглавной буквы, файлы — в нижнем регистре (кроме общепринятых имён вроде `README`, чей регистр сохраняется) |
 
 Порядок важен: `CaseRule` идёт последним (после схлопывания пробелов и обрезки кромок), что обеспечивает корректную капитализацию за один проход и идемпотентность.
 
@@ -127,6 +129,14 @@ function fsnorm { & "C:\path\to\fs-normalizer\normalize.bat" @args }
 | `Отчёт.TXT` | `otchiot.TXT` |
 | `Письмо.doc` | `pismo.doc` |
 | `ООО «Печоралифтсервис».docx` | `ooo-pechoraliftservis.docx` |
+| `Файл (1).docx` | `fail-01.docx` |
+| `Файл [1].docx` | `fail-01.docx` |
+| `инн (Нового договора нет).txt` | `inn-(novogo-dogovora-net).txt` |
+| `инн [Нового договора нет].txt` | `inn-[novogo-dogovora-net].txt` |
+| `Файл (1.docx` | `fail-01.docx` |
+| `инн (Нового договора нет.txt` | `inn-novogo-dogovora-net.txt` |
+| `Резюме - подготовка.txt` | `reziume-podgotovka.txt` |
+| `file--improved.txt` | `file--improved.txt` |
 | `10½.dat` | `10-01-02.dat` |
 | `1_file.TXT` | `01_file.TXT` |
 | `v2 readme.MD` | `v2-readme.MD` |
@@ -153,13 +163,13 @@ function fsnorm { & "C:\path\to\fs-normalizer\normalize.bat" @args }
 from normalizer import build_normalizer, FilesystemNormalizer
 
 normalizer = build_normalizer()
-normalizer.normalize("Отчёт 2020", is_dir=True)   # 'Otchiot_2020-00-00'
+normalizer.normalize("Отчёт 2020", is_dir=True)    # 'Otchiot_2020-00-00'
 
 fs = FilesystemNormalizer(build_normalizer())
 renamed, skipped = fs.apply(Path("/path/to/dir"))
 ```
 
-Экспортируется: `main`, `FilesystemNormalizer`, `NameNormalizer`, `build_normalizer`, `Rule`, `TransliterationRule`, `DateRule`, `LeadingZeroRule`, `CaseRule`, `SpaceToDashRule`, `TrimEdgeRule`.
+Экспортируется: `main`, `FilesystemNormalizer`, `NameNormalizer`, `build_normalizer`, `Rule`, `TransliterationRule`, `BracketsRule`, `DateRule`, `LeadingZeroRule`, `CaseRule`, `SpaceToDashRule`, `TrimEdgeRule`.
 
 ## Разработка
 
