@@ -5,6 +5,7 @@ from normalizer import (
     DateRule,
     FilesystemNormalizer,
     LeadingZeroRule,
+    TransliterationRule,
     TrimEdgeRule,
     build_normalizer,
 )
@@ -199,6 +200,50 @@ def test_empty_stem_guard(nn):
 
 
 # --------------------------------------------------------------------------- #
+# Безопасность: транслитерация не должна вносить разделители пути / управляющие
+# символы. Иначе os.rename истолковал бы их как путь и переместил/потерял объект.
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "½", "¼", "¾", "10½", "½ доля", "naïve½", "файл ½",
+        "∖обратная", "↘стрелка", "＼fullwidth",  # дают '\' через unidecode
+        "пример\u2028строка", "две\u2029строки",  # дают '\n' через unidecode
+    ],
+)
+def test_no_path_separators_introduced(nn, raw):
+    for is_dir in (False, True):
+        out = nn.normalize(raw if is_dir else raw + ".txt", is_dir=is_dir)
+        assert "/" not in out
+        assert "\\" not in out
+        assert not any(ord(c) < 0x20 for c in out)
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("½.txt", "01-02.txt"),
+        ("10½.dat", "10-01-02.dat"),
+        ("½ доля.txt", "01-02-dolia.txt"),
+    ],
+)
+def test_fraction_pipeline(nn, name, expected):
+    assert nn.normalize(name, is_dir=False) == expected
+
+
+def test_transliteration_rule_strips_separators():
+    # Прямой контракт правила: '/' и '\' из unidecode заменяются на '-'.
+    assert "/" not in TransliterationRule().apply("½", is_dir=False)
+    assert "\\" not in TransliterationRule().apply("∖", is_dir=False)
+
+
+@pytest.mark.parametrize("raw", ["½", "10½", "½ доля", "naïve½"])
+def test_fraction_idempotent(nn, raw):
+    once = nn.normalize(raw, is_dir=False)
+    assert nn.normalize(once, is_dir=False) == once
+
+
+# --------------------------------------------------------------------------- #
 # FilesystemNormalizer (e2e на временной папке)
 # --------------------------------------------------------------------------- #
 def _make_tree(root):
@@ -245,6 +290,24 @@ def test_fs_conflict_skipped(tmp_path):
     assert skipped >= 1
     assert (tmp_path / "a b.md").exists()
     assert (tmp_path / "a-b.md").exists()
+
+
+def test_fs_no_relocation_via_separator(tmp_path):
+    # Регресс на критический баг: имя с дробью раньше давало '10-1/2.dat' и os.rename
+    # МОЛЧА перемещал файл в соседний каталог '10-1'. Теперь имя остаётся одним
+    # компонентом пути, файл нормализуется на месте, ничего не теряется.
+    secret = tmp_path / "10½.dat"
+    secret.write_text("СЕКРЕТ")
+    sibling = tmp_path / "10-1"
+    sibling.mkdir()
+    (sibling / "keep.txt").write_text("сосед")
+    fs = FilesystemNormalizer(build_normalizer())
+    fs.apply(tmp_path)
+    # Данные остались прямо в корне (не уехали внутрь соседнего каталога):
+    survivors = [p for p in tmp_path.iterdir() if p.is_file() and p.read_text() == "СЕКРЕТ"]
+    assert len(survivors) == 1
+    assert "/" not in survivors[0].name and "\\" not in survivors[0].name
+    assert (tmp_path / "10½.dat").exists() is False  # переименован
 
 
 def test_fs_case_collision_no_data_loss(tmp_path):
