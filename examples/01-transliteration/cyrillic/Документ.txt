@@ -1,0 +1,3 @@
+fixture: Документ
+разные байты тут лежат
+lorem ipsum dolor sit amet

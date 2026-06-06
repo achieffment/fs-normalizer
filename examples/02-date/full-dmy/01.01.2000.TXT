@@ -1,0 +1,4 @@
+fixture: 01.01.2000
+проверка регистра и дат
+just a placeholder line
+demo content

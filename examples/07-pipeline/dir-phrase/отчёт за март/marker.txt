@@ -1,0 +1,3 @@
+fixture: отчёт за март
+0xCAFEBABE marker
+проверка регистра и дат

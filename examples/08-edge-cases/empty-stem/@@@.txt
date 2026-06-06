@@ -1,0 +1,4 @@
+fixture: @@@
+fixture for normalizer
+fixture for normalizer
+ничего особенного

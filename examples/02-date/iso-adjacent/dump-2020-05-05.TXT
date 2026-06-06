@@ -1,0 +1,4 @@
+fixture: dump-2020-05-05
+demo content
+just a placeholder line
+edge case sample text

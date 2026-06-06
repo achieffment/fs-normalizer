@@ -1,0 +1,3 @@
+fixture: 2020-05-05-file
+demo content
+ничего особенного

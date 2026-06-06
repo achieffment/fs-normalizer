@@ -1,0 +1,3 @@
+fixture: ___naïve 7 2020___
+разные байты тут лежат
+sample payload 42

@@ -1,0 +1,4 @@
+fixture: -file_01-
+edge case sample text
+edge case sample text
+тестовые данные внутри

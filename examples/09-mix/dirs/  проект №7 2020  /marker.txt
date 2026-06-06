@@ -1,0 +1,2 @@
+fixture:   проект №7 2020  
+fixture for normalizer

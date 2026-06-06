@@ -1,0 +1,3 @@
+fixture: my docs
+just a placeholder line
+0xCAFEBABE marker

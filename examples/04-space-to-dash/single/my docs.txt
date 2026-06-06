@@ -1,0 +1,3 @@
+fixture: my docs
+edge case sample text
+alpha beta gamma delta

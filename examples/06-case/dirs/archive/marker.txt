@@ -1,0 +1,3 @@
+fixture: archive
+fixture for normalizer
+проверка регистра и дат

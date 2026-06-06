@@ -1,0 +1,4 @@
+fixture: report final
+alpha beta gamma delta
+alpha beta gamma delta
+fixture for normalizer

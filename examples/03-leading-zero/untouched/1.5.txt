@@ -1,0 +1,4 @@
+fixture: 1.5
+fixture for normalizer
+lorem ipsum dolor sit amet
+fixture for normalizer

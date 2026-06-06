@@ -1,0 +1,4 @@
+fixture: 3 2021.03.10
+lorem ipsum dolor sit amet
+проверка регистра и дат
+alpha beta gamma delta

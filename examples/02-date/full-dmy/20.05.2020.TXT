@@ -1,0 +1,4 @@
+fixture: 20.05.2020
+0xCAFEBABE marker
+alpha beta gamma delta
+lorem ipsum dolor sit amet

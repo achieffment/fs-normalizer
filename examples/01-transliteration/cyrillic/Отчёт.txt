@@ -1,0 +1,4 @@
+fixture: Отчёт
+demo content
+just a placeholder line
+0xCAFEBABE marker

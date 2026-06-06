@@ -1,0 +1,3 @@
+fixture: model2020
+разные байты тут лежат
+sample payload 42

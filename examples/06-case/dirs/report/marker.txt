@@ -1,0 +1,3 @@
+fixture: report
+demo content
+lorem ipsum dolor sit amet

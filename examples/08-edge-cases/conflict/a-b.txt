@@ -1,0 +1,3 @@
+fixture: уже a-b
+lorem ipsum dolor sit amet
+ничего особенного

@@ -1,0 +1,4 @@
+fixture: Документ 2020
+fixture for normalizer
+alpha beta gamma delta
+sample payload 42

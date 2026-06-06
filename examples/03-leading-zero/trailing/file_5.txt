@@ -1,0 +1,2 @@
+fixture: file_5
+edge case sample text

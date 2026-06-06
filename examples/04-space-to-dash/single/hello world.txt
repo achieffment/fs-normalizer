@@ -1,0 +1,3 @@
+fixture: hello world
+0xCAFEBABE marker
+sample payload 42

@@ -1,0 +1,3 @@
+fixture: 2020
+ничего особенного
+fixture for normalizer

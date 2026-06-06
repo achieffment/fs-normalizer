@@ -1,0 +1,4 @@
+fixture: version2021
+ничего особенного
+demo content
+тестовые данные внутри

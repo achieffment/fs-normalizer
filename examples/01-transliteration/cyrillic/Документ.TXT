@@ -1,0 +1,2 @@
+fixture: Документ
+lorem ipsum dolor sit amet

@@ -1,0 +1,4 @@
+fixture: model2020
+проверка регистра и дат
+just a placeholder line
+alpha beta gamma delta

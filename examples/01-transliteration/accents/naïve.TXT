@@ -1,0 +1,4 @@
+fixture: naïve
+fixture for normalizer
+проверка регистра и дат
+just a placeholder line

@@ -1,0 +1,4 @@
+fixture: ★star
+fixture for normalizer
+demo content
+lorem ipsum dolor sit amet

@@ -1,0 +1,3 @@
+fixture: @@ café 3 05.2020 ##
+alpha beta gamma delta
+разные байты тут лежат

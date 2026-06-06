@@ -1,0 +1,3 @@
+fixture: v2 Отчёт 20.05.2020
+проверка регистра и дат
+edge case sample text

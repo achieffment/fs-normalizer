@@ -1,0 +1,4 @@
+fixture: 13.2020
+lorem ipsum dolor sit amet
+тестовые данные внутри
+alpha beta gamma delta

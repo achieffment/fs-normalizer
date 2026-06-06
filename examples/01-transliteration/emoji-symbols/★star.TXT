@@ -1,0 +1,4 @@
+fixture: ★star
+тестовые данные внутри
+fixture for normalizer
+0xCAFEBABE marker

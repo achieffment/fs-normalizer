@@ -1,0 +1,3 @@
+fixture: lots   of   space
+alpha beta gamma delta
+0xCAFEBABE marker

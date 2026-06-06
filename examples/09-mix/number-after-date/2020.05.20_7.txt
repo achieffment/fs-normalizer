@@ -1,0 +1,4 @@
+fixture: 2020.05.20_7
+lorem ipsum dolor sit amet
+fixture for normalizer
+комбинация правил

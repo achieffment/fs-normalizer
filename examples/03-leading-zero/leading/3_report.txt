@@ -1,0 +1,4 @@
+fixture: 3_report
+ничего особенного
+тестовые данные внутри
+lorem ipsum dolor sit amet

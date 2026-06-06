@@ -1,0 +1,3 @@
+fixture: Отчёт
+разные байты тут лежат
+just a placeholder line

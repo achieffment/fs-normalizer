@@ -1,0 +1,3 @@
+fixture: REPORT
+проверка регистра и дат
+edge case sample text

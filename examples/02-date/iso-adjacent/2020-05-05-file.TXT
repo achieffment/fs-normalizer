@@ -1,0 +1,4 @@
+fixture: 2020-05-05-file
+разные байты тут лежат
+edge case sample text
+0xCAFEBABE marker

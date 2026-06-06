@@ -1,0 +1,2 @@
+fixture: MixedName
+demo content

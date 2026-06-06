@@ -1,0 +1,4 @@
+fixture: 1999.12
+just a placeholder line
+sample payload 42
+demo content

@@ -1,0 +1,4 @@
+fixture: 1_file
+ничего особенного
+edge case sample text
+alpha beta gamma delta

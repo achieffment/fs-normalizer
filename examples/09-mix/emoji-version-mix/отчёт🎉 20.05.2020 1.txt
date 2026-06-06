@@ -1,0 +1,3 @@
+fixture: отчёт🎉 20.05.2020 1
+edge case sample text
+sample payload 42

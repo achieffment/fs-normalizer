@@ -1,0 +1,3 @@
+fixture: Отчёт 2020
+разные байты тут лежат
+alpha beta gamma delta

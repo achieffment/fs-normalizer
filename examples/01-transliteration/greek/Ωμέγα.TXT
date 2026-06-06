@@ -1,0 +1,4 @@
+fixture: Ωμέγα
+ничего особенного
+0xCAFEBABE marker
+edge case sample text

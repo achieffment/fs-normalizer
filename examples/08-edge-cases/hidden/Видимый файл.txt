@@ -1,0 +1,4 @@
+fixture: Видимый файл
+fixture for normalizer
+0xCAFEBABE marker
+just a placeholder line

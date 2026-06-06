@@ -1,0 +1,3 @@
+fixture: --name--
+разные байты тут лежат
+0xCAFEBABE marker

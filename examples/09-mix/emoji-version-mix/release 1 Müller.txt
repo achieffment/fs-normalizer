@@ -1,0 +1,3 @@
+fixture: release 1 Müller
+edge case sample text
+sample payload 42

@@ -1,0 +1,4 @@
+fixture: dump-2020-05-05
+проверка регистра и дат
+lorem ipsum dolor sit amet
+разные байты тут лежат

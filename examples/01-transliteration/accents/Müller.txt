@@ -1,0 +1,4 @@
+fixture: Müller
+lorem ipsum dolor sit amet
+проверка регистра и дат
+0xCAFEBABE marker

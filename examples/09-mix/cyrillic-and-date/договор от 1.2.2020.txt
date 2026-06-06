@@ -1,0 +1,4 @@
+fixture: договор от 1.2.2020
+edge case sample text
+lorem ipsum dolor sit amet
+комбинация правил

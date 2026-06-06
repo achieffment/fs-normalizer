@@ -1,0 +1,3 @@
+fixture: résumé
+lorem ipsum dolor sit amet
+разные байты тут лежат

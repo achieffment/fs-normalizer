@@ -1,0 +1,4 @@
+fixture: ###2021.03.10
+sample payload 42
+demo content
+разные байты тут лежат
