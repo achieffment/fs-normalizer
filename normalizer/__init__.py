@@ -8,6 +8,7 @@ from .cli import main
 from .filesystem import FilesystemNormalizer
 from .name import NameNormalizer, build_normalizer
 from .rules import (
+    BracketsRule,
     CaseRule,
     DateRule,
     LeadingZeroRule,
@@ -24,6 +25,7 @@ __all__ = [
     "build_normalizer",
     "Rule",
     "TransliterationRule",
+    "BracketsRule",
     "DateRule",
     "LeadingZeroRule",
     "CaseRule",

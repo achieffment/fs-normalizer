@@ -4,6 +4,7 @@ from __future__ import annotations
 import re
 
 from .rules import (
+    BracketsRule,
     CaseRule,
     DateRule,
     LeadingZeroRule,
@@ -24,7 +25,7 @@ class NameNormalizer:
     # Разделители пути ('/', '\') и управляющие символы не могут попасть в имя,
     # отдаваемое в os.rename (иначе объект уехал бы в другой каталог). Основную
     # очистку делает TransliterationRule; этот барьер ловит любой остаток.
-    _PATH_UNSAFE_RE = re.compile(r"[\\/\x00-\x1f]+")
+    _DIR_UNSAFE_RE = re.compile(r"[\\/\x00-\x1f]+")
     # Тот же барьер для запрещённых на Windows символов ('< > : " | ? *'):
     # TransliterationRule их уже вырезал — здесь страховка, чтобы имя оставалось
     # валидным на Windows (одиночный '<' ломает os.rename — WinError 123).
@@ -51,7 +52,7 @@ class NameNormalizer:
         # Защитный барьер: имя не должно содержать разделителей пути/управляющих
         # символов и запрещённых на Windows символов. В норме TransliterationRule
         # их уже убрал — здесь страховка.
-        new_stem = self._PATH_UNSAFE_RE.sub("-", new_stem)
+        new_stem = self._DIR_UNSAFE_RE.sub("-", new_stem)
         new_stem = self._WIN_FRBIDDDEN_RE.sub("", new_stem)
         if not new_stem:
             return name  # защита от пустого имени (например, имя из одних emoji)
@@ -69,6 +70,7 @@ def build_normalizer() -> NameNormalizer:
     return NameNormalizer(
         [
             TransliterationRule(),
+            BracketsRule(),
             DateRule(),
             LeadingZeroRule(),
             SpaceToDashRule(),
