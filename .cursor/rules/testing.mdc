@@ -1,0 +1,32 @@
+---
+description: Тесты ко всем правилам и проверка изменений
+alwaysApply: true
+---
+
+# Тесты ко всем правилам
+
+Каждое правило нормализации покрыто тестами и проверяется. Новое или изменённое
+поведение обязательно сопровождается тестами в `tests/test_normalize.py`:
+
+- **Юнит правила**: прямые вызовы `<Rule>().apply(...)` на наборе кейсов.
+- **Пайплайн**: поведение через `build_normalizer().normalize(...)`.
+- **Идемпотентность**: `normalize(normalize(x)) == normalize(x)`.
+
+Проверка (инструменты в `.venv`; в PowerShell `&&` не поддерживается):
+
+    .venv/bin/python -m pytest -q
+    .venv/bin/python -m ruff check normalizer tests
+    .venv/bin/python -m mypy --strict normalizer normalize_fs.py
+
+Всё должно быть зелёным. Идемпотентность дополнительно проверяй на копии
+`examples/` (исходник под git не трогаем) — два прогона `FilesystemNormalizer`:
+
+    cp -r examples /tmp/ex && rm -f /tmp/ex/reset.* /tmp/ex/README.md
+    .venv/bin/python -c "from pathlib import Path; from normalizer import \
+    build_normalizer, FilesystemNormalizer as F; r=Path('/tmp/ex'); \
+    n=F(build_normalizer()); n.apply(r); print(n.apply(r))"
+
+Второй прогон должен затронуть **только** намеренно состязательные кейсы из
+`10-mix` (строки с `*` в `examples/README.md`): одиночная цифра перед датой после
+ведущего нуля (`5 ` -> `05_`) на втором проходе читается `DateRule` как месяц-год.
+Любое изменение вне этих строк — регресс идемпотентности.
