@@ -6,7 +6,7 @@ CLI-утилита для рекурсивной нормализации имё
 
 - Рекурсивный обход каталога с переименованием файлов и папок.
 - Транслитерация не-ASCII символов (кириллица, умляуты, emoji и т.п.) в ASCII.
-- Распознавание дат в разных форматах и приведение к ISO (`YYYY-MM-DD`) с плейсхолдерами `?` для недостающих компонентов.
+- Распознавание дат в разных форматах и приведение к ISO (`YYYY-MM-DD`) с плейсхолдерами `00` для недостающих компонентов.
 - Ведущий ноль для однозначных числовых токенов (`1_file` → `01_file`).
 - Пробелы → дефис, обрезка «мусора» по краям имени (у файлов сохраняется ведущий `_`), единый регистр (папки — с заглавной, файлы — в нижнем; общепринятые имена вроде `README` сохраняют регистр).
 - Расширение файла не изменяется.
@@ -107,10 +107,10 @@ function fsnorm { & "C:\path\to\fs-normalizer\normalize.bat" @args }
 | # | Правило | Что делает |
 |---|---------|------------|
 | 1 | `TransliterationRule` | Любой не-ASCII символ → ASCII |
-| 2 | `DateRule` | Даты → ISO `YYYY-MM-DD`; недостающие части → `??` |
+| 2 | `DateRule` | Даты → ISO `YYYY-MM-DD`; недостающие части → `00` |
 | 3 | `LeadingZeroRule` | Однозначный числовой токен → с ведущим нулём |
 | 4 | `SpaceToDashRule` | Пробелы (и их повторы) → одиночный дефис |
-| 5 | `TrimEdgeRule` | Обрезка не буквенно-цифровых символов по краям (с сохранением `?`; у файлов сохраняется ведущий `_`) |
+| 5 | `TrimEdgeRule` | Обрезка не буквенно-цифровых символов по краям (у файлов сохраняется ведущий `_`) |
 | 6 | `CaseRule` | Папки — с заглавной буквы, файлы — в нижнем регистре (кроме общепринятых имён вроде `README`, чей регистр сохраняется) |
 
 Порядок важен: `CaseRule` идёт последним (после схлопывания пробелов и обрезки кромок), что обеспечивает корректную капитализацию за один проход и идемпотентность.
@@ -125,8 +125,8 @@ function fsnorm { & "C:\path\to\fs-normalizer\normalize.bat" @args }
 | `1_file.TXT` | `01_file.TXT` |
 | `v2 readme.MD` | `v2-readme.MD` |
 | `20.05.2020_dump` | `2020-05-20_dump` |
-| `05.2020_report` | `2020-05-??_report` |
-| `2020` | `2020-??-??` |
+| `05.2020_report` | `2020-05-00_report` |
+| `2020` | `2020-00-00` |
 | `-file_01-.png` | `file_01.png` |
 | `_private.TXT` | `_private.TXT` |
 | `README.md` | `README.md` |
@@ -136,7 +136,7 @@ function fsnorm { & "C:\path\to\fs-normalizer\normalize.bat" @args }
 | Исходное имя | Результат |
 |--------------|-----------|
 | `отчёт за март` | `Otchiot-za-mart` |
-| `Отчёт 2020` | `Otchiot_2020-??-??` |
+| `Отчёт 2020` | `Otchiot_2020-00-00` |
 | `  отчёт` | `Otchiot` |
 
 ## Публичное API
@@ -147,7 +147,7 @@ function fsnorm { & "C:\path\to\fs-normalizer\normalize.bat" @args }
 from normalizer import build_normalizer, FilesystemNormalizer
 
 normalizer = build_normalizer()
-normalizer.normalize("Отчёт 2020", is_dir=True)   # 'Otchiot_2020-??-??'
+normalizer.normalize("Отчёт 2020", is_dir=True)   # 'Otchiot_2020-00-00'
 
 fs = FilesystemNormalizer(build_normalizer())
 renamed, skipped = fs.apply(Path("/path/to/dir"))

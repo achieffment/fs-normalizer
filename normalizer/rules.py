@@ -30,7 +30,7 @@ class TransliterationRule(Rule):
 
 class DateRule(Rule):
     """
-    Находит даты в имени и приводит их к ISO-форме с плейсхолдерами '?'.
+    Находит даты в имени и приводит их к ISO-форме с плейсхолдерами '00'.
     Порядок альтернатив важен: от самого специфичного к общему, чтобы
     частичные шаблоны не «съедали» более полные. Уже нормализованные формы
     распознаются первыми и не меняются (идемпотентность).
@@ -45,8 +45,6 @@ class DateRule(Rule):
         (?:
             (?P<norm>                   # уже готовый ISO — не трогаем (идемпотентность)
                 \d{4,4}-\d{2,2}-\d{2,2}
-              | \d{4,4}-\d{2,2}-\?{2,2}
-              | \d{4,4}-\?{2,2}-\?{2,2}
             )
           | (?P<full>                   # полная дата: YYYY.MM.DD или DD.MM.YYYY
                 \d{4,4}[._/-]\d{1,2}[._/-]\d{1,2}
@@ -69,7 +67,7 @@ class DateRule(Rule):
     # Каноническая дата (после нормализации) и её соседние разделители.
     # Используется, чтобы любой разделитель вокруг даты привести к '_'
     # (2020-05-05-file -> 2020-05-05_file, dump-2020-05-05 -> dump_2020-05-05).
-    _DF = r"\d{4,4}-(?:\d{2,2}|\?{2,2})-(?:\d{2,2}|\?{2,2})"
+    _DF = r"\d{4,4}-\d{2,2}-\d{2,2}"
     _BR = re.compile(
         r"(?P<pre>[ ._/\-]+)?(?P<date>" + _DF + r")(?P<post>[ ._/\-]+)?"
     )
@@ -89,7 +87,7 @@ class DateRule(Rule):
         if m.group("year"):
             year = int(m.group("year"))
             if 1900 <= year <= 2099:
-                return f"{year:04d}-??-??"
+                return f"{year:04d}-00-00"
             return m.group(0)
         return m.group(0)  # pragma: no cover
 
@@ -116,7 +114,7 @@ class DateRule(Rule):
         month_i = int(month)
         if not 1 <= month_i <= 12:
             return None
-        return f"{int(year):04d}-{month_i:02d}-??"
+        return f"{int(year):04d}-{month_i:02d}-00"
 
     @staticmethod
     def _sep(m: "re.Match[str]") -> str:
@@ -186,10 +184,10 @@ class SpaceToDashRule(Rule):
 
 
 class TrimEdgeRule(Rule):
-    """Обрезает не буквенно-цифровые символы по краям, сохраняя '?' (плейсхолдер даты)."""
+    """Обрезает не буквенно-цифровые символы по краям имени."""
 
-    _LE = re.compile(r"^[^0-9A-Za-z?]+")
-    _TE = re.compile(r"[^0-9A-Za-z?]+$")
+    _LE = re.compile(r"^[^0-9A-Za-z]+")
+    _TE = re.compile(r"[^0-9A-Za-z]+$")
     # Ведущие '_' у файлов сохраняем (например, _private, __init__),
     # обрезаем только остальной «мусор» по краям.
     _LEAD_US = re.compile(r"^_+")
