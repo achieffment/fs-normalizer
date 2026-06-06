@@ -158,11 +158,21 @@ class LeadingZeroRule(Rule):
 
 
 class CaseRule(Rule):
-    """Папки — с заглавной буквы, файлы — в нижнем регистре."""
+    """Папки — с заглавной буквы, файлы — в нижнем регистре.
+
+    Исключение: общепринятые имена-маркеры (README и т.п.) сохраняют
+    свой регистр — их stem не приводится к нижнему. Чтобы защитить новое
+    имя, достаточно добавить его в PRESERVED_STEMS.
+    """
+
+    # Имена (stem без расширения), регистр которых не меняем: README, README.md ...
+    PRESERVED_STEMS = frozenset({"README"})
 
     def apply(self, stem: str, is_dir: bool) -> str:
         if is_dir:
             return stem[:1].upper() + stem[1:]
+        if stem in self.PRESERVED_STEMS:
+            return stem
         return stem.lower()
 
 

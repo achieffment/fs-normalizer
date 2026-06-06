@@ -155,6 +155,20 @@ def test_leading_zero(raw, expected):
 def test_case_rule():
     assert CaseRule().apply("report", is_dir=True) == "Report"
     assert CaseRule().apply("Report", is_dir=False) == "report"
+    # README в верхнем регистре сохраняется как есть:
+    assert CaseRule().apply("README", is_dir=False) == "README"
+
+
+@pytest.mark.parametrize(
+    "name, expected",
+    [
+        ("README", "README"),
+        ("README.md", "README.md"),
+        ("README.TXT", "README.TXT"),
+    ],
+)
+def test_readme_preserved(nn, name, expected):
+    assert nn.normalize(name, is_dir=False) == expected
 
 
 @pytest.mark.parametrize(

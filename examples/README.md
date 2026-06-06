@@ -121,7 +121,7 @@ cp -r examples /tmp/examples-test
 
 ### 06-case — `CaseRule`
 
-Папки — с заглавной буквы, файлы — в нижнем регистре.
+Папки — с заглавной буквы, файлы — в нижнем регистре. Исключение — общепринятые имена вроде `README`: их регистр сохраняется.
 
 | Подпапка | Тип | Вход | Результат |
 |----------|-----|------|-----------|
@@ -131,6 +131,7 @@ cp -r examples /tmp/examples-test
 | files | файл | `REPORT` | `report` |
 | files | файл | `MixedName` | `mixedname` |
 | files | файл | `UPPER` | `upper` |
+| files | файл | `README` | `README` |
 
 ### 07-pipeline — комбинированные кейсы
 
