@@ -161,13 +161,20 @@ def test_case_rule():
     "raw, expected",
     [
         ("-file-", "file"),
-        ("__name__", "name"),
+        ("__name__", "__name"),  # ведущие '_' у файлов сохраняются
+        ("_private", "_private"),
+        ("--_file", "file"),  # '_' не в самом начале -> обрезается вместе с мусором
         ("2020-05-??", "2020-05-??"),  # '?' сохраняется
         ("2020-??-??", "2020-??-??"),
     ],
 )
 def test_trim_edge(raw, expected):
     assert TrimEdgeRule().apply(raw, is_dir=False) == expected
+
+
+def test_trim_edge_dir_strips_leading_underscore():
+    # Для папок поведение не меняется: ведущий '_' обрезается.
+    assert TrimEdgeRule().apply("__name__", is_dir=True) == "name"
 
 
 def test_empty_stem_guard(nn):

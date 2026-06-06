@@ -180,7 +180,16 @@ class TrimEdgeRule(Rule):
 
     _LE = re.compile(r"^[^0-9A-Za-z?]+")
     _TE = re.compile(r"[^0-9A-Za-z?]+$")
+    # Ведущие '_' у файлов сохраняем (например, _private, __init__),
+    # обрезаем только остальной «мусор» по краям.
+    _LEAD_US = re.compile(r"^_+")
 
     def apply(self, stem: str, is_dir: bool) -> str:
+        lead = ""
+        if not is_dir:
+            m = self._LEAD_US.match(stem)
+            if m:
+                lead = m.group(0)
+                stem = stem[len(lead):]
         stem = self._LE.sub("", stem)
-        return self._TE.sub("", stem)
+        return lead + self._TE.sub("", stem)
