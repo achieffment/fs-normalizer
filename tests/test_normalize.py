@@ -157,6 +157,8 @@ def test_case_rule():
     assert CaseRule().apply("Report", is_dir=False) == "report"
     # README в верхнем регистре сохраняется как есть:
     assert CaseRule().apply("README", is_dir=False) == "README"
+    # Сохраняется только точное совпадение: иной регистр приводится к нижнему.
+    assert CaseRule().apply("Readme", is_dir=False) == "readme"
 
 
 @pytest.mark.parametrize(
