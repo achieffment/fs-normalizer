@@ -6,7 +6,7 @@ import sys
 import uuid
 from pathlib import Path
 
-from .exclude import PathExcluder, PathIncluder
+from .ignore import FsIgnore
 from .name import NameNormalizer
 
 
@@ -16,37 +16,30 @@ class FilesystemNormalizer:
     def __init__(
         self,
         normalizer: NameNormalizer,
-        excluder: PathExcluder | None = None,
-        includer: PathIncluder | None = None,
+        ignorer: FsIgnore | None = None,
     ):
         self.normalizer = normalizer
-        self.excluder = excluder
-        self.includer = includer
+        self.ignorer = ignorer
 
     @staticmethod
     def _hidden(name: str) -> bool:
         return name.startswith(".")
 
-    def _skip(self, path: Path) -> bool:
-        """Пропустить ли объект: исключён exclude и не возвращён include.
+    def _skip(self, path: Path, root: Path, is_dir: bool) -> bool:
+        """Пропустить ли объект: совпал ли его путь (ОТНОСИТЕЛЬНО root) с .fs-ignore.
 
-        Конфликт решается по глубине последнего совпавшего сегмента: include
-        побеждает, если совпал не мельче exclude (ничья — в пользу include).
+        Override-правила (`!`) учитываются движком pathspec по порядку строк
+        (выигрывает последняя совпавшая), поэтому здесь достаточно одного вызова.
         """
-        if self.excluder is None:
+        if self.ignorer is None:
             return False
-        excl = self.excluder.deepest_match(path)
-        if excl < 0:
-            return False
-        if self.includer is None:
-            return True
-        return self.includer.deepest_match(path) < excl
+        return self.ignorer.matches(path.relative_to(root), is_dir)
 
     def _collect(self, root: Path) -> list[Path]:
-        # Когда include задан, нельзя обрезать исключённые каталоги: внутри могут
-        # быть повторно включённые потомки, до которых надо дойти. Тогда заходим
-        # во все нескрытые каталоги, а решение skip/normalize принимаем по объекту.
-        probe = self.includer is not None and bool(self.includer.patterns)
+        # При наличии override-правил (`!`) нельзя обрезать исключённые каталоги:
+        # внутри могут быть возвращённые потомки, до которых надо дойти. Тогда
+        # заходим во все нескрытые каталоги, а skip/normalize решаем по объекту.
+        probe = self.ignorer is not None and self.ignorer.has_negation
         items: list[Path] = []
         for dirpath, foldnames, filenames in os.walk(root, topdown=True, followlinks=False):
             base = Path(dirpath)
@@ -54,7 +47,7 @@ class FilesystemNormalizer:
             for name in foldnames:
                 if self._hidden(name):
                     continue                          # скрытые не обходим
-                skip = self._skip(base / name)
+                skip = self._skip(base / name, root, is_dir=True)
                 if skip and not probe:
                     continue                          # обрезаем исключённое поддерево
                 kept_folds.append(name)               # заходим внутрь
@@ -64,7 +57,7 @@ class FilesystemNormalizer:
             for name in filenames:
                 if self._hidden(name):
                     continue
-                if not self._skip(base / name):
+                if not self._skip(base / name, root, is_dir=False):
                     items.append(base / name)
         # Корневой каталог не добавляется (берём только его содержимое) -> не переименовывается.
         return items

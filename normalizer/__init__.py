@@ -5,8 +5,8 @@
 from __future__ import annotations
 
 from .cli import main
-from .exclude import PathExcluder, PathIncluder, load_excluder, load_includer
 from .filesystem import FilesystemNormalizer
+from .ignore import FsIgnore, load_fs_ignore
 from .name import NameNormalizer, build_normalizer
 from .rules import (
     BracketsRule,
@@ -22,10 +22,8 @@ from .rules import (
 __all__ = [
     "main",
     "FilesystemNormalizer",
-    "PathExcluder",
-    "PathIncluder",
-    "load_excluder",
-    "load_includer",
+    "FsIgnore",
+    "load_fs_ignore",
     "NameNormalizer",
     "build_normalizer",
     "Rule",
