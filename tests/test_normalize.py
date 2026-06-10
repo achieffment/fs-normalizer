@@ -1,3 +1,6 @@
+import shutil
+from pathlib import PurePosixPath, PureWindowsPath
+
 import pytest
 
 from normalizer import (
@@ -6,11 +9,16 @@ from normalizer import (
     DateRule,
     FilesystemNormalizer,
     LeadingZeroRule,
+    PathExcluder,
+    PathIncluder,
     SpaceToDashRule,
     TransliterationRule,
     TrimEdgeRule,
     build_normalizer,
+    load_excluder,
+    load_includer,
 )
+from normalizer.exclude import _canon, _seg_glob
 
 
 @pytest.fixture()
@@ -516,3 +524,615 @@ def test_fs_case_collision_no_data_loss(tmp_path):
     assert skipped >= 1
     assert (tmp_path / "File.md").read_text() == "upper"
     assert (tmp_path / "file.md").read_text() == "lower"
+
+
+# --------------------------------------------------------------------------- #
+# PathExcluder — сопоставление по сегментам пути
+# --------------------------------------------------------------------------- #
+def _exc(*entries):
+    return PathExcluder([_canon(e) for e in entries])
+
+
+def _p(text):
+    return PurePosixPath(text)
+
+
+@pytest.mark.parametrize(
+    "entry, path, excluded",
+    [
+        # Совпадение по границам сегмента (а не сырой подстрокой):
+        ("Archive", "/home/user/Archive/file.txt", True),
+        ("Archive", "/home/user/MyArchive/file.txt", False),
+        ("Archive", "/home/user/Archive2/file.txt", False),
+        # Регистронезависимость (кросс-платформенно):
+        ("archive", "/home/user/Archive/x", True),
+        ("ARCHIVE", "/home/user/archive/x", True),
+        # Нормализация разделителей: '\\' эквивалентен '/':
+        ("Programs\\Composer", "/opt/Programs/Composer/bin", True),
+        ("Programs/Composer", "/opt/Programs/Composer/bin", True),
+        # Многосегментный паттерн — непрерывная цепочка:
+        ("Home/Components", "/home/achieffment/Home/Components/fs", True),
+        ("Home/Components", "/home/achieffment/Home/Other/Components/fs", False),
+        # Буква диска -> токен: совпадает на Windows и в WSL (один диск):
+        ("D:\\Programs", "D:\\Programs\\app", True),
+        ("D:\\Programs", "/mnt/d/Programs/app", True),
+        # Разные диски НЕ путаются:
+        ("E:\\Programs", "D:\\Programs\\app", False),
+        ("E:\\Programs", "/mnt/d/Programs/app", False),
+        # Несовпадающий префикс не исключает:
+        ("Resources/Fonts", "/x/Resources/Other/Fonts", False),
+    ],
+)
+def test_path_excluder_matching(entry, path, excluded):
+    p = PureWindowsPath(path) if "\\" in path else PurePosixPath(path)
+    assert _exc(entry).is_excluded(p) is excluded
+
+
+def test_path_excluder_empty_never_excludes():
+    exc = PathExcluder([])
+    assert exc.is_excluded(_p("/anything/at/all")) is False
+
+
+# --------------------------------------------------------------------------- #
+# _canon — устойчивость к слешам (ведущие/завершающие/кратные)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "text, expected",
+    [
+        ("Home/Components", ("home", "components")),
+        ("Home/Components/", ("home", "components")),
+        ("/Home/Components", ("home", "components")),
+        ("Home//Components", ("home", "components")),
+        ("///Home///Components///", ("home", "components")),
+        ("  Home/Components  ", ("home", "components")),
+        ("/home//mnt///disk", ("home", "mnt", "disk")),
+        ("Home\\Components\\", ("home", "components")),
+        ("", ()),
+        ("///", ()),
+    ],
+)
+def test_canon_slash_robustness(text, expected):
+    assert _canon(text) == expected
+
+
+def test_canon_slash_forms_equal():
+    # Форма со слешем на конце/в начале и без — один и тот же канон.
+    assert _canon("Home/Components/") == _canon("Home/Components")
+    assert _canon("/Home/Components") == _canon("Home/Components")
+    assert _canon("Home//Components") == _canon("Home/Components")
+
+
+@pytest.mark.parametrize(
+    "entry",
+    ["Resources/Fonts", "Resources/Fonts/", "/Resources/Fonts", "Resources//Fonts"],
+)
+def test_is_excluded_dirty_pattern_forms(entry):
+    # «Грязные» формы паттерна дают одинаковый результат сопоставления.
+    assert _exc(entry).is_excluded(_p("/x/Resources/Fonts/y")) is True
+    assert _exc(entry).is_excluded(_p("/x/Resources/Other/Fonts")) is False
+
+
+# --------------------------------------------------------------------------- #
+# Кросс-платформенная матрица: Windows / WSL / Linux / Mac
+# Одна запись ведёт себя одинаково, в т.ч. при переносе Windows<->WSL.
+# --------------------------------------------------------------------------- #
+def _path(text):
+    # Windows-форму распознаём по '\\' или префиксу диска 'X:'.
+    if "\\" in text or (len(text) >= 2 and text[1] == ":"):
+        return PureWindowsPath(text)
+    return PurePosixPath(text)
+
+
+@pytest.mark.parametrize(
+    "entry, path, excluded",
+    [
+        # Один диск, Windows<->WSL в обе стороны:
+        ("D:\\Programs", "D:\\Programs\\app", True),
+        ("D:\\Programs", "/mnt/d/Programs/app", True),
+        ("/mnt/d/Programs", "D:\\Programs\\app", True),
+        ("/mnt/d/Programs", "/mnt/d/Programs/app", True),
+        ("mnt/d/Programs", "D:\\Programs\\app", True),
+        ("D:/Programs", "/mnt/d/Programs/app", True),
+        # Разные диски не путаются:
+        ("E:\\Programs", "D:\\Programs\\app", False),
+        ("/mnt/e/Programs", "D:\\Programs\\app", False),
+        # Относительный паттерн без диска совпадает с любым диском:
+        ("Programs", "D:\\Programs\\app", True),
+        ("Programs", "/mnt/c/Programs/app", True),
+        # Linux/Mac:
+        ("Home/Components", "/home/u/Home/Components/x", True),
+        ("Home/Components", "/Users/u/Home/Components/x", True),
+        # UNC из Windows к файлам WSL (containment):
+        ("/home/achieffment/Home", "\\\\wsl.localhost\\Ubuntu\\home\\achieffment\\Home\\x", True),
+        # '/mnt/wsl' — не диск (сегмент не одиночная буква):
+        ("/mnt/wsl/Programs", "/mnt/wsl/Programs/app", True),
+        ("D:\\Programs", "/mnt/wsl/Programs/app", False),
+    ],
+)
+def test_crossplatform_matrix(entry, path, excluded):
+    assert _exc(entry).is_excluded(_path(path)) is excluded
+
+
+def test_crossplatform_drive_token_symmetry():
+    # D:\, D:/, /mnt/d, mnt/d -> один канон [d, programs].
+    forms = ["D:\\Programs", "D:/Programs", "/mnt/d/Programs", "mnt/d/Programs"]
+    canons = {_canon(f) for f in forms}
+    assert canons == {("d", "programs")}
+
+
+# --------------------------------------------------------------------------- #
+# load_excluder — чтение exclude.txt из корня проекта
+# --------------------------------------------------------------------------- #
+def test_load_excluder_missing_file(tmp_path):
+    # Нет файла -> None (проверки выключены).
+    assert load_excluder(tmp_path) is None
+
+
+def test_load_excluder_empty_file(tmp_path):
+    # Пустой файл -> excluder без паттернов (ничего не исключает).
+    (tmp_path / "exclude.txt").write_text("")
+    exc = load_excluder(tmp_path)
+    assert exc is not None
+    assert exc.is_excluded(_p("/home/user/Archive")) is False
+
+
+def test_load_excluder_patterns_and_blank_lines(tmp_path):
+    (tmp_path / "exclude.txt").write_text(
+        "Archive\n\n  Resources/Fonts  \nD:\\Programs\n\n"
+    )
+    exc = load_excluder(tmp_path)
+    assert exc is not None
+    assert exc.is_excluded(_p("/x/Archive/y")) is True
+    assert exc.is_excluded(_p("/x/Resources/Fonts/y")) is True
+    assert exc.is_excluded(_p("/mnt/d/Programs/y")) is True
+    assert exc.is_excluded(_p("/x/Other/y")) is False
+
+
+def test_load_excluder_does_not_modify_file(tmp_path):
+    # Файл при сопоставлении не изменяется: содержимое читается как есть.
+    content = "D:\\Programs\nArchive\n"
+    f = tmp_path / "exclude.txt"
+    f.write_text(content)
+    exc = load_excluder(tmp_path)
+    assert exc is not None
+    exc.is_excluded(_p("/x/Archive"))
+    assert f.read_text() == content
+
+
+# --------------------------------------------------------------------------- #
+# FilesystemNormalizer + исключения (e2e на временной папке)
+# --------------------------------------------------------------------------- #
+def test_fs_excluded_dir_not_renamed_or_descended(tmp_path):
+    # Исключённый каталог не переименовывается, внутрь не заходим (содержимое
+    # тоже не трогаем), при этом видимый сосед нормализуется.
+    archive = tmp_path / "Archive"
+    archive.mkdir()
+    (archive / "Отчёт 2020").write_text("x")  # имя осталось бы ненормализованным
+    (tmp_path / "Отчёт 2020").write_text("y")
+    exc = _exc("Archive")
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    fs.apply(tmp_path)
+    # Исключённый каталог и его содержимое не тронуты:
+    assert (tmp_path / "Archive").is_dir()
+    assert (tmp_path / "Archive" / "Отчёт 2020").exists()
+    # Сосед нормализован:
+    assert (tmp_path / "otchiot_2020-00-00").exists()
+
+
+def test_fs_excluded_not_counted(tmp_path):
+    # Исключённые объекты не попадают в счётчики renamed/skipped (req. 8).
+    archive = tmp_path / "Archive"
+    archive.mkdir()
+    (archive / "Файл (1).txt").write_text("x")  # был бы переименован
+    (tmp_path / "Файл (1).txt").write_text("y")  # сосед -> переименование
+    exc = _exc("Archive")
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    renamed, skipped = fs.apply(tmp_path)
+    assert renamed == 1  # только сосед
+    assert skipped == 0
+    assert (tmp_path / "fail-01.txt").exists()
+
+
+def test_fs_excluded_file_by_segment(tmp_path):
+    # Паттерн может совпасть с именем самого файла (последний сегмент пути).
+    (tmp_path / "Keep").write_text("x")  # имя нормализуемо, но исключено
+    (tmp_path / "Drop me").write_text("y")
+    exc = _exc("Keep")
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    renamed, skipped = fs.apply(tmp_path)
+    assert (tmp_path / "Keep").exists()  # не тронут
+    assert (tmp_path / "drop-me").exists()  # сосед нормализован
+    assert renamed == 1
+    assert skipped == 0
+
+
+def test_fs_without_excluder_behaves_as_before(tmp_path):
+    # excluder=None (по умолчанию) -> прежнее поведение.
+    (tmp_path / "Archive").mkdir()
+    (tmp_path / "Archive" / "Отчёт.txt").write_text("x")
+    fs = FilesystemNormalizer(build_normalizer())
+    fs.apply(tmp_path)
+    assert (tmp_path / "Archive" / "otchiot.txt").exists()
+
+
+def test_fs_exclude_file_by_name_anywhere(tmp_path):
+    # Паттерн-имя 'notes.txt' исключает такой файл в любом месте дерева; файлы с
+    # другими именами (включая близкие) нормализуются. Каталоги названы уже
+    # нормализованно ('Docs'/'Deep'/'Inner'), чтобы проверять именно файлы.
+    (tmp_path / "Docs").mkdir()
+    (tmp_path / "Deep" / "Inner").mkdir(parents=True)
+    (tmp_path / "Docs" / "notes.txt").write_text("1")
+    (tmp_path / "Deep" / "Inner" / "notes.txt").write_text("2")
+    (tmp_path / "Docs" / "mynotes.txt").write_text("3")
+    (tmp_path / "Docs" / "notes.txt.bak").write_text("4")
+    (tmp_path / "Docs" / "Заметки.txt").write_text("5")
+    exc = _exc("notes.txt")
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    renamed, skipped = fs.apply(tmp_path)
+    # notes.txt не тронуты и не посчитаны:
+    assert (tmp_path / "Docs" / "notes.txt").exists()
+    assert (tmp_path / "Deep" / "Inner" / "notes.txt").exists()
+    # Прочие файлы нормализованы (mynotes.txt/notes.txt.bak уже в нижнем регистре):
+    assert (tmp_path / "Docs" / "zametki.txt").exists()
+    assert skipped == 0
+    assert renamed == 1  # только 'Заметки.txt' менял имя
+
+
+def test_fs_exclude_file_specific_path(tmp_path):
+    # Уточнённый паттерн 'Sub/notes.txt' исключает только файл в этой цепочке.
+    (tmp_path / "Sub").mkdir()
+    (tmp_path / "Other").mkdir()
+    (tmp_path / "Sub" / "notes.txt").write_text("1")
+    (tmp_path / "Other" / "notes.txt").write_text("2")
+    exc = _exc("Sub/notes.txt")
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    fs.apply(tmp_path)
+    assert (tmp_path / "Sub" / "notes.txt").exists()  # исключён
+    # 'Other/notes.txt' не исключён; имя уже нормализовано, но папка Other -> остаётся
+    assert (tmp_path / "Other" / "notes.txt").exists()
+
+
+def test_fs_real_scenario_projects_components_archive(tmp_path):
+    # Сценарий пользователя: нормализуем .../Home; исключаем конкретные Projects,
+    # Components и любой Archive; неуказанные каталоги нормализуются.
+    home = tmp_path / "Home"
+    (home / "Activities" / "3D" / "Projects").mkdir(parents=True)
+    (home / "Activities" / "Web" / "Projects").mkdir(parents=True)
+    (home / "Activities" / "Misc" / "Archive").mkdir(parents=True)
+    (home / "Activities" / "Java" / "src").mkdir(parents=True)
+    (home / "Components").mkdir()
+    # Внутри исключённых — «грязные» имена, которые НЕ должны меняться:
+    (home / "Activities" / "3D" / "Projects" / "Мой проект").write_text("x")
+    (home / "Activities" / "Misc" / "Archive" / "Старьё 2019").write_text("x")
+    (home / "Components" / "Кнопка").write_text("x")
+    # В неисключённом src — имя, которое ДОЛЖНО нормализоваться:
+    (home / "Activities" / "Java" / "src" / "Главный Класс").write_text("x")
+
+    exc = _exc(
+        "/mnt/disk/DevOps",
+        "Archive",
+        "Home/Activities/3D/Projects",
+        "Home/Activities/Web/Projects/",  # форма со слешем на конце
+        "Home/Components",
+    )
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    fs.apply(home)
+
+    # Исключённое не тронуто:
+    assert (home / "Activities" / "3D" / "Projects" / "Мой проект").exists()
+    assert (home / "Activities" / "Misc" / "Archive" / "Старьё 2019").exists()
+    assert (home / "Components" / "Кнопка").exists()
+    # Каталоги-исключения сохранили исходные имена:
+    assert (home / "Activities" / "3D" / "Projects").is_dir()
+    assert (home / "Activities" / "Web" / "Projects").is_dir()
+    assert (home / "Components").is_dir()
+    # Неуказанный src нормализован (папка -> 'Src'), как и файл внутри него:
+    assert (home / "Activities" / "Java" / "Src" / "glavnyi-klass").exists()
+    # Родители (Activities, языки) целиком не исключались — нормализуются:
+    assert (home / "Activities" / "Java" / "Src").is_dir()
+
+
+# --- include: glob-матчер (юнит) ---
+
+
+def _inc(*entries):
+    return PathIncluder([_canon(e) for e in entries])
+
+
+def test_glob_double_star_floats():
+    inc = _inc("Activities/Web/Projects/**/Data")
+    # '**' поглощает промежуточные сегменты:
+    assert inc.matches(PurePosixPath("/h/Activities/Web/Projects/Addl/Archive/Data"))
+    # поддерево re-included объекта тоже матчится (плавающий конец):
+    assert inc.matches(PurePosixPath("/h/Activities/Web/Projects/X/Data/inner"))
+    # '**' поглощает ноль сегментов:
+    assert inc.matches(PurePosixPath("/h/Activities/Web/Projects/Data"))
+
+
+def test_glob_single_star_one_segment():
+    inc = _inc("a/*/b")
+    assert inc.matches(PurePosixPath("/root/a/x/b"))
+    # ровно один сегмент — не ноль:
+    assert not inc.matches(PurePosixPath("/root/a/b"))
+    # и не два:
+    assert not inc.matches(PurePosixPath("/root/a/x/y/b"))
+
+
+def test_glob_zero_segments_double_star_middle():
+    inc = _inc("a/**/b")
+    assert inc.matches(PurePosixPath("/root/a/b"))  # ноль сегментов между
+
+
+def test_glob_literal_backwards_compatible():
+    # Без '*'/'**' поведение идентично прежнему подсеквенс-матчу по сегментам.
+    exc = _exc("Home/Components")
+    assert exc.is_excluded(PurePosixPath("/home/u/Home/Components/Btn"))
+    assert not exc.is_excluded(PurePosixPath("/home/u/Home/Other"))
+
+
+def test_deepest_match_depth_index():
+    # Глубина = индекс конца последнего совпавшего сегмента.
+    exc = _exc("Archive")
+    incl = _inc("Projects/**/Data")
+    p = PurePosixPath("/h/Projects/Archive/Data")
+    # Archive на индексе 2 -> конец 3; Data на индексе 3 -> конец 4 (глубже).
+    assert exc.deepest_match(p) == 3
+    assert incl.deepest_match(p) == 4
+
+
+# --------------------------------------------------------------------------- #
+# Intra-segment glob: '*' внутри сегмента (юнит _seg_glob, регистр уже снят)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "pat, text, ok",
+    [
+        # Суффикс/префикс/инфикс:
+        ("*.txt", "notes.txt", True),
+        ("*.txt", "notes.md", False),
+        ("a*", "abc", True),
+        ("a*", "abc", True),
+        ("a*", "xabc", False),
+        ("*foo*", "xfooy", True),
+        ("*foo*", "foo", True),
+        ("*foo*", "bar", False),
+        ("data-*-final", "data-2020-final", True),
+        ("data-*-final", "data--final", True),       # '*' матчит ноль символов
+        ("data-*-final", "data-x-fin", False),
+        # Одиночная '*' = весь сегмент (сегменты непустые):
+        ("*", "anything", True),
+        # Несколько '*' в сегменте:
+        ("a*b*c", "axbyc", True),
+        ("a*b*c", "abc", True),                       # пустые вставки
+        ("a*b*c", "ac", False),
+        # '**'/'***' вперемешку с символами трактуются как intra '*':
+        ("a**b", "ab", True),
+        ("a**b", "axyzb", True),
+        ("***", "whatever", True),
+        ("a*b*", "axb", True),
+        ("a*b*", "ba", False),
+        # Литерал без '*' — точное равенство:
+        ("plain", "plain", True),
+        ("plain", "plainx", False),
+        # БЕЗОПАСНОСТЬ СКОБОК и '?': это ЛИТЕРАЛЫ, не классы/джокеры glob:
+        ("файл [1]", "файл [1]", True),
+        ("файл [1]", "файл 1", False),                # '[1]' НЕ класс символов
+        ("файл [1]", "файл a", False),
+        ("a?b", "a?b", True),
+        ("a?b", "axb", False),                        # '?' литерал, не джокер
+        ("инн [нового договора нет]", "инн [нового договора нет]", True),
+        # '*' + литеральные скобки вместе:
+        ("*[1]", "файл [1]", True),
+        ("*[1]", "файл [2]", False),
+    ],
+)
+def test_seg_glob(pat, text, ok):
+    assert _seg_glob(pat, text) is ok
+
+
+@pytest.mark.parametrize(
+    "entry, path, excluded",
+    [
+        # intra-segment в реальном пути (последний сегмент / середина):
+        ("*.bak", "/h/u/Docs/notes.bak", True),
+        ("*.bak", "/h/u/Docs/notes.txt", False),
+        ("tmp*", "/h/tmp_build/x", True),
+        ("tmp*", "/h/mytmp/x", False),
+        ("*cache*", "/h/u/AppCache/data", True),
+        ("Projects/*/build", "/h/Projects/web/build/out", True),
+        ("Projects/*/build", "/h/Projects/build", False),  # '*' — ровно один сегмент
+        # Скобки в паттерне — литералы (имена проекта со скобками):
+        ("Файл [1]", "/h/u/Файл [1]/x", True),
+        ("Файл [1]", "/h/u/Файл 1/x", False),
+        # intra '*' + cross '**' вместе:
+        ("Projects/**/*.log", "/h/Projects/a/b/run.log", True),
+        ("Projects/**/*.log", "/h/Projects/run.log", True),  # '**' = ноль сегментов
+        ("Projects/**/*.log", "/h/Projects/a/run.txt", False),
+    ],
+)
+def test_intra_segment_glob_matching(entry, path, excluded):
+    assert _exc(entry).is_excluded(PurePosixPath(path)) is excluded
+
+
+def test_intra_glob_crossplatform_drive():
+    # intra-glob поверх канона диска: Win-паттерн матчит WSL-путь и наоборот.
+    assert _exc("D:\\Prog*").is_excluded(PureWindowsPath("D:\\Programs\\app"))
+    assert _exc("D:\\Prog*").is_excluded(PurePosixPath("/mnt/d/Programs/app"))
+    assert _exc("/mnt/d/Prog*").is_excluded(PureWindowsPath("D:\\Programs\\app"))
+    # Разные диски не путаются даже с glob:
+    assert not _exc("E:\\Prog*").is_excluded(PurePosixPath("/mnt/d/Programs/app"))
+
+
+def test_cross_segment_double_star_positions():
+    # '**' в начале/середине/конце; ноль сегментов; несколько '**'.
+    assert _inc("**/Data").matches(PurePosixPath("/a/b/Data"))      # начало
+    assert _inc("a/**/b").matches(PurePosixPath("/r/a/b"))          # ноль сегментов
+    assert _inc("a/**").matches(PurePosixPath("/r/a/x/y"))          # конец, 1+
+    assert _inc("a/**").matches(PurePosixPath("/r/a"))              # конец, ноль
+    assert _inc("a/**/b/**/c").matches(PurePosixPath("/r/a/x/b/y/c")) # несколько
+
+
+def test_intra_glob_idempotent_safe_chars():
+    # Паттерн со '*' не вносит разделителей пути и матчит по сегментам стабильно.
+    inc = _inc("*.txt")
+    p = PurePosixPath("/h/u/report.txt")
+    assert inc.matches(p) is True
+    assert inc.matches(p) is True  # повторное сопоставление детерминировано
+
+
+# --- include: load_includer ---
+
+
+def test_load_includer_no_file(tmp_path):
+    assert load_includer(tmp_path) is None
+
+
+def test_load_includer_empty_file(tmp_path):
+    (tmp_path / "include.txt").write_text("", encoding="utf-8")
+    inc = load_includer(tmp_path)
+    assert isinstance(inc, PathIncluder)
+    assert inc.patterns == []
+    assert inc.deepest_match(PurePosixPath("/any/path")) == -1
+
+
+def test_load_includer_patterns_and_blanks(tmp_path):
+    (tmp_path / "include.txt").write_text(
+        "Activities/Web/Projects/**/Data\n\n  \nFoo/Bar\n", encoding="utf-8-sig"
+    )
+    inc = load_includer(tmp_path)
+    assert inc is not None
+    assert len(inc.patterns) == 2
+    assert inc.matches(PurePosixPath("/h/Activities/Web/Projects/X/Data"))
+
+
+# --- include: e2e override ---
+
+
+def test_fs_include_override_nested(tmp_path):
+    # exclude убирает Archive и конкретный Projects; include возвращает Data-поддерево.
+    base = tmp_path / "Home" / "Activities" / "Web" / "Projects" / "Addl" / "Archive" / "btkf.ru" / "Data"
+    (base / "Раздел").mkdir(parents=True)
+    (base / "Раздел" / "файл данных").write_text("x")
+    exc = _exc("Archive", "Home/Activities/Web/Projects")
+    inc = _inc("Activities/Web/Projects/**/Data")
+    fs = FilesystemNormalizer(build_normalizer(), exc, inc)
+    renamed, _ = fs.apply(tmp_path)
+    # Data и содержимое нормализованы:
+    assert base.is_dir()  # имя 'Data' уже нормальное
+    assert (base / "Razdel").is_dir()
+    assert (base / "Razdel" / "fail-dannykh").exists()
+    # Промежуточные исключённые не тронуты:
+    assert (tmp_path / "Home" / "Activities" / "Web" / "Projects").is_dir()
+    assert base.parent.name == "btkf.ru"  # 'Archive' и 'btkf.ru' не нормализованы
+    # В renamed попало только включённое поддерево (Razdel + файл = 2):
+    assert renamed == 2
+
+
+def test_fs_include_deeper_archive_reexcluded(tmp_path):
+    # Внутри re-included Data есть Archive — он снова исключён (его exclude глубже).
+    data = tmp_path / "Projects" / "Data"
+    (data / "Archive" / "Старьё").mkdir(parents=True)
+    (data / "Папка").mkdir()
+    exc = _exc("Archive")
+    inc = _inc("Projects/**/Data")
+    fs = FilesystemNormalizer(build_normalizer(), exc, inc)
+    fs.apply(tmp_path)
+    assert (data / "Papka").is_dir()  # нормализовано
+    assert (data / "Archive" / "Старьё").exists()  # вложенный Archive снова исключён
+
+
+def test_fs_include_deeper_pattern_wins_tie(tmp_path):
+    # Более глубокий include возвращает вложенный Archive (ничья по глубине -> include).
+    data = tmp_path / "Projects" / "Data"
+    (data / "Archive" / "Старьё").mkdir(parents=True)
+    exc = _exc("Archive")
+    inc = _inc("Projects/**/Data", "Projects/**/Data/**/Archive")
+    fs = FilesystemNormalizer(build_normalizer(), exc, inc)
+    fs.apply(tmp_path)
+    assert (data / "Archive" / "Stario").exists()  # снова нормализуется
+
+
+def test_fs_include_noop_without_exclude(tmp_path):
+    # include без exclude ничего не меняет: всё нормализуется как обычно.
+    (tmp_path / "Папка").mkdir()
+    inc = _inc("Папка")
+    fs = FilesystemNormalizer(build_normalizer(), None, inc)
+    fs.apply(tmp_path)
+    assert (tmp_path / "Papka").is_dir()
+
+
+def test_fs_include_file_override(tmp_path):
+    # Исключённый по имени файл повторно включается уточнённым include-путём.
+    (tmp_path / "Docs").mkdir()
+    (tmp_path / "Other").mkdir()
+    (tmp_path / "Docs" / "заметки.txt").write_text("x")
+    (tmp_path / "Other" / "заметки.txt").write_text("x")
+    exc = _exc("заметки.txt")
+    inc = _inc("Docs/заметки.txt")
+    fs = FilesystemNormalizer(build_normalizer(), exc, inc)
+    fs.apply(tmp_path)
+    assert (tmp_path / "Docs" / "zametki.txt").exists()  # включён обратно
+    assert (tmp_path / "Other" / "заметки.txt").exists()  # остаётся исключён
+
+
+def test_fs_exclude_intra_glob_file(tmp_path):
+    # exclude по intra-glob '*.bak' исключает резервные копии в любом месте,
+    # остальные файлы нормализуются и считаются.
+    (tmp_path / "Docs").mkdir()
+    (tmp_path / "Docs" / "Отчёт.bak").write_text("1")  # исключён glob
+    (tmp_path / "Docs" / "Отчёт.txt").write_text("2")  # нормализуется
+    exc = _exc("*.bak")
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    renamed, skipped = fs.apply(tmp_path)
+    assert (tmp_path / "Docs" / "Отчёт.bak").exists()       # не тронут
+    assert (tmp_path / "Docs" / "otchiot.txt").exists()     # нормализован
+    assert renamed == 1
+    assert skipped == 0
+
+
+def test_fs_include_intra_glob_override(tmp_path):
+    # exclude убирает всё поддерево Build; include с intra-glob '*.keep'
+    # возвращает только подходящие файлы (override по глубине).
+    build = tmp_path / "Build"
+    build.mkdir()
+    (build / "Черновик.tmp").write_text("x")    # остаётся исключён
+    (build / "Важное.keep").write_text("y")      # re-included intra-glob
+    exc = _exc("Build")
+    inc = _inc("Build/*.keep")
+    fs = FilesystemNormalizer(build_normalizer(), exc, inc)
+    fs.apply(tmp_path)
+    assert (build / "Черновик.tmp").exists()             # исключён -> не тронут
+    assert (build / "vazhnoe.keep").exists()             # включён -> нормализован
+
+
+def test_fs_exclude_bracket_literal_not_charclass(tmp_path):
+    # Паттерн со скобками — литерал: 'Файл [1]' исключает ровно такой каталог,
+    # а 'Файл 1' (как если бы '[1]' был классом) — нет.
+    a = tmp_path / "Файл [1]"
+    b = tmp_path / "Файл 1"
+    a.mkdir()
+    b.mkdir()
+    (a / "вложение").write_text("x")
+    (b / "вложение").write_text("y")
+    exc = _exc("Файл [1]")
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    fs.apply(tmp_path)
+    assert (a / "вложение").exists()             # исключён литерально -> не тронут
+    # 'Файл 1' НЕ исключён -> нормализуются и каталог, и файл в нём (deepest-first):
+    survivors = [p for p in tmp_path.rglob("*") if p.is_file() and p.read_text() == "y"]
+    assert len(survivors) == 1
+    assert survivors[0].name == "vlozhenie"
+    assert survivors[0].parent.name != "Файл 1"  # каталог тоже нормализован
+
+
+def test_fs_include_crossplatform_slash_forms(tmp_path):
+    # Формы include-паттерна со слешем на конце и Windows-разделителем эквивалентны.
+    for pat in ("Projects/**/Data/", "Projects\\**\\Data"):
+        data = tmp_path / "Projects" / "X" / "Data"
+        (data / "Папка").mkdir(parents=True)
+        exc = _exc("Projects")
+        inc = _inc(pat)
+        fs = FilesystemNormalizer(build_normalizer(), exc, inc)
+        fs.apply(tmp_path)
+        assert (data / "Papka").is_dir()
+        # очистка для следующей итерации
+        shutil.rmtree(tmp_path / "Projects")
