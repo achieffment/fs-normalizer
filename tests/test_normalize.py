@@ -345,7 +345,7 @@ def test_fsignore_order_reexclude_after_reinclude():
 
 
 # --------------------------------------------------------------------------- #
-# load_fs_ignore — чтение .fs-ignore из корня проекта
+# load_fs_ignore — чтение .fs-ignore из выбранного каталога (корня нормализации)
 # --------------------------------------------------------------------------- #
 def test_load_fs_ignore_missing_file(tmp_path):
     # Нет файла -> None (фильтр выключен).
@@ -566,3 +566,24 @@ def test_fs_ignore_literal_bracket_escaped(tmp_path):
     survivors = [p for p in tmp_path.rglob("*") if p.is_file() and p.read_text() == "y"]
     assert len(survivors) == 1
     assert survivors[0].name == "vlozhenie"
+
+
+def test_fs_ignore_read_from_normalized_dir(tmp_path):
+    # .fs-ignore лежит ВНУТРИ нормализуемого каталога и читается из него
+    # (load_fs_ignore(root)); якорь '/' отсчитывается от этой же папки, а сам файл
+    # .fs-ignore (имя на '.') обходом пропускается и не переименовывается.
+    (tmp_path / ".fs-ignore").write_text("/Sub\n")
+    (tmp_path / "Sub").mkdir()
+    (tmp_path / "Other").mkdir()
+    (tmp_path / "Sub" / "Отчёт 2020").write_text("x")    # исключён якорем /Sub
+    (tmp_path / "Other" / "Отчёт 2020").write_text("y")  # сосед нормализуется
+    ign = load_fs_ignore(tmp_path)
+    assert ign is not None
+    fs = FilesystemNormalizer(build_normalizer(), ign)
+    renamed, skipped = fs.apply(tmp_path)
+    assert (tmp_path / "Sub" / "Отчёт 2020").exists()            # исключён
+    assert (tmp_path / "Other" / "otchiot_2020-00-00").exists()  # нормализован
+    assert (tmp_path / ".fs-ignore").is_file()                   # сам файл уцелел
+    # Посчитан только переименованный сосед: .fs-ignore не попал в счётчики.
+    assert renamed == 1
+    assert skipped == 0

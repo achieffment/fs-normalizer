@@ -14,8 +14,9 @@ alwaysApply: false
 добавляется **перед** ней, а `mix` перенумеровывается так, чтобы остаться последней
 (сейчас `09-brackets`, затем `10-mix`).
 
-Для прогона `examples/` файл `.fs-ignore` в корне проекта должен быть пустым;
-регистр в паттернах значим (`Archive` ≠ `archive`).
+Для прогона `examples/` в нём не должно быть файла `examples/.fs-ignore` (он
+читается из самого нормализуемого каталога); регистр в паттернах значим
+(`Archive` ≠ `archive`).
 
 Для каждого кейса заводи **две** формы одного примера:
 
@@ -48,7 +49,7 @@ alwaysApply: false
 а остальные имена не меняй (никаких массовых переименований). Проверка — единственный
 конфликт должен быть в `08-edge-cases/conflict`:
 
-    cp -r examples /tmp/ex && rm -f /tmp/ex/reset.* /tmp/ex/README.md
+    cp -r examples /tmp/ex && rm -f /tmp/ex/reset.* /tmp/ex/README.md /tmp/ex/.fs-ignore
     .venv/bin/python -c "from pathlib import Path; from normalizer import \
     build_normalizer, FilesystemNormalizer as F; \
     F(build_normalizer()).apply(Path('/tmp/ex'))" 2>&1 | grep конфликт

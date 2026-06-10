@@ -5,9 +5,6 @@ setlocal
 set "fold=%~dp0"
 set "pyex=%fold%.venv\Scripts\python.exe"
 
-REM Список путей .fs-ignore (стиль .gitignore): если файла нет, создаём пустой (фильтр выключен).
-if not exist "%fold%.fs-ignore" type nul > "%fold%.fs-ignore"
-
 if not exist "%pyex%" goto setup
 "%pyex%" -c "import unidecode" 1>nul 2>nul
 if errorlevel 1 goto setup

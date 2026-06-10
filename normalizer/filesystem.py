@@ -60,6 +60,8 @@ class FilesystemNormalizer:
                 if not self._skip(base / name, root, is_dir=False):
                     items.append(base / name)
         # Корневой каталог не добавляется (берём только его содержимое) -> не переименовывается.
+        # Сам .fs-ignore лежит в корне (имя на `.`) -> отсекается `_hidden` выше: не
+        # нормализуется и не попадает в матчинг, отдельной защиты не требует.
         return items
 
     def apply(self, root: Path) -> tuple[int, int]:
