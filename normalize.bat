@@ -5,6 +5,10 @@ setlocal
 set "fold=%~dp0"
 set "pyex=%fold%.venv\Scripts\python.exe"
 
+REM Списки путей exclude/include: если файла нет, создаём пустой (проверки выключены).
+if not exist "%fold%exclude.txt" type nul > "%fold%exclude.txt"
+if not exist "%fold%include.txt" type nul > "%fold%include.txt"
+
 if not exist "%pyex%" goto setup
 "%pyex%" -c "import unidecode" 1>nul 2>nul
 if errorlevel 1 goto setup

@@ -6,30 +6,66 @@ import sys
 import uuid
 from pathlib import Path
 
+from .exclude import PathExcluder, PathIncluder
 from .name import NameNormalizer
 
 
 class FilesystemNormalizer:
     """Сбор путей (с обрезкой скрытых) и переименование deepest-first."""
 
-    def __init__(self, normalizer: NameNormalizer):
+    def __init__(
+        self,
+        normalizer: NameNormalizer,
+        excluder: PathExcluder | None = None,
+        includer: PathIncluder | None = None,
+    ):
         self.normalizer = normalizer
+        self.excluder = excluder
+        self.includer = includer
 
     @staticmethod
     def _hidden(name: str) -> bool:
         return name.startswith(".")
 
+    def _skip(self, path: Path) -> bool:
+        """Пропустить ли объект: исключён exclude и не возвращён include.
+
+        Конфликт решается по глубине последнего совпавшего сегмента: include
+        побеждает, если совпал не мельче exclude (ничья — в пользу include).
+        """
+        if self.excluder is None:
+            return False
+        excl = self.excluder.deepest_match(path)
+        if excl < 0:
+            return False
+        if self.includer is None:
+            return True
+        return self.includer.deepest_match(path) < excl
+
     def _collect(self, root: Path) -> list[Path]:
+        # Когда include задан, нельзя обрезать исключённые каталоги: внутри могут
+        # быть повторно включённые потомки, до которых надо дойти. Тогда заходим
+        # во все нескрытые каталоги, а решение skip/normalize принимаем по объекту.
+        full_scan = self.includer is not None and bool(self.includer.patterns)
         items: list[Path] = []
         for dirpath, foldnames, filenames in os.walk(root, topdown=True, followlinks=False):
             base = Path(dirpath)
-            # Обрезаем скрытые каталоги и файлы на месте, чтобы не заходить внутрь.
-            foldnames[:] = [d for d in foldnames if not self._hidden(d)]
-            filenames[:] = [f for f in filenames if not self._hidden(f)]
-            for name in filenames:
-                items.append(base / name)
+            kept_folds: list[str] = []
             for name in foldnames:
-                items.append(base / name)
+                if self._hidden(name):
+                    continue                          # скрытые не обходим
+                skip = self._skip(base / name)
+                if skip and not full_scan:
+                    continue                          # обрезаем исключённое поддерево
+                kept_folds.append(name)               # заходим внутрь
+                if not skip:
+                    items.append(base / name)
+            foldnames[:] = kept_folds
+            for name in filenames:
+                if self._hidden(name):
+                    continue
+                if not self._skip(base / name):
+                    items.append(base / name)
         # Корневой каталог не добавляется (берём только его содержимое) -> не переименовывается.
         return items
 

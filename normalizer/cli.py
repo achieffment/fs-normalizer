@@ -8,8 +8,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+from .exclude import load_excluder, load_includer
 from .filesystem import FilesystemNormalizer
 from .name import build_normalizer
+
+# Корень проекта (где лежат normalize_fs.py и exclude.txt); cli.py — в normalizer/.
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 # PowerShell-скрипт с C#-блоком IFileOpenDialog (нативный выбор папки Windows).
 _PICK_FOLDER_PS1 = Path(__file__).with_name("pick_folder.ps1")
@@ -224,7 +228,9 @@ def main(argv: list[str] | None = None) -> int:
     if not root.is_dir():
         sys.stderr.write(f"Ошибка: каталог не является каталогом: {root}\n")
         return 1
-    fsnm = FilesystemNormalizer(build_normalizer())
+    fsnm = FilesystemNormalizer(
+        build_normalizer(), load_excluder(_PROJECT_ROOT), load_includer(_PROJECT_ROOT)
+    )
     print(f"Каталог: {root}")
     renamed, skipped = fsnm.apply(root)
     print(f"Готово. Переименовано: {renamed}, пропущено: {skipped}.")

@@ -6,6 +6,10 @@ fold="$(cd -- "$(dirname -- "$0")" && pwd)"
 venv="$fold/.venv"
 pyex="$venv/bin/python"
 
+# Списки путей exclude/include: если файла нет, создаём пустой (проверки выключены).
+[ -e "$fold/exclude.txt" ] || : > "$fold/exclude.txt"
+[ -e "$fold/include.txt" ] || : > "$fold/include.txt"
+
 if [ ! -x "$pyex" ] || ! "$pyex" -c "import unidecode" >/dev/null 2>&1; then
     echo "Подготовка окружения (.venv)..." >&2
     rm -rf "$venv"
