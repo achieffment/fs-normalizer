@@ -21,31 +21,31 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-# Буква диска Windows ('c:', 'd:') и WSL-монтирование ('/mnt/d') приводятся к
+# Буква диска Windows ('C:', 'D:') и WSL-монтирование ('/mnt/d') приводятся к
 # ОДНОМУ сохраняемому токену-букве ('d'), чтобы 'D:\\Programs' и '/mnt/d/Programs'
 # совпадали в обе стороны (Windows<->WSL), но РАЗНЫЕ диски не путались
-# ('E:\\Programs' != 'D:\\Programs'). Сравнение идёт после casefold — буква в
-# нижнем регистре.
-_DRIVE_RE = re.compile(r"^([a-z]):$")
-_MOUNT_LETTER_RE = re.compile(r"^[a-z]$")
+# ('E:\\Programs' != 'D:\\Programs'). Только токен диска — в lower; остальные
+# сегменты сохраняют регистр как в паттерне и в str(path).
+_DRIVE_RE = re.compile(r"^([A-Za-z]):$")
+_MOUNT_LETTER_RE = re.compile(r"^[A-Za-z]$")
 
 
 def _canon(text: str) -> tuple[str, ...]:
     """Путь/фрагмент -> кортеж канонических сегментов.
 
-    Разделители '\\' приводятся к '/', регистр снимается (casefold) для
-    кросс-платформенной нечувствительности (Windows/macOS), пустые сегменты
-    отбрасываются. Буква диска и WSL-монтирование сводятся к одному токену-букве:
-    'd:' -> 'd', '/mnt/d/...' -> 'd/...'. Относительный путь без диска (просто
-    'Programs') токена не получает и совпадает с любым диском. Glob-метасимвол
-    '*' внутри сегмента (и целый сегмент '**') проходит как есть.
+    Разделители '\\' приводятся к '/', регистр сегментов сохраняется (матчинг
+    регистрозависимый), пустые сегменты отбрасываются. Исключение — буква диска
+    и WSL-монтирование: сводятся к одному токену-букве в lower ('D:' -> 'd',
+    '/mnt/d/...' -> 'd/...') для симметрии Windows<->WSL. Относительный путь без
+    диска ('Programs') токена не получает и совпадает с любым диском. Glob-
+    метасимвол '*' внутри сегмента (и целый сегмент '**') проходит как есть.
     """
-    parts = [p.strip().casefold() for p in text.replace("\\", "/").split("/")]
-    segs = [p for p in parts if p]
+    frag = [p.strip() for p in text.replace("\\", "/").split("/")]
+    segs = [p for p in frag if p]
     if segs and (drive := _DRIVE_RE.match(segs[0])):
-        segs = [drive.group(1), *segs[1:]]            # 'd:' -> 'd'
+        segs = [drive.group(1).lower(), *segs[1:]]   # 'D:' -> 'd'
     elif len(segs) >= 2 and segs[0] == "mnt" and _MOUNT_LETTER_RE.match(segs[1]):
-        segs = segs[1:]                               # '/mnt/d/...' -> 'd/...'
+        segs = [segs[1].lower(), *segs[2:]]           # '/mnt/d/...' -> 'd/...'
     return tuple(segs)
 
 
@@ -57,19 +57,20 @@ def _seg_glob(pat_seg: str, text_seg: str) -> bool:
     префиксом, последняя — суффиксом, промежуточные — встречаться по порядку без
     перекрытия. Несколько '*' подряд (или вперемешку, 'a**b', '***') дают пустые
     части и работают как один '*'. Без '*' — точное равенство (обратная
-    совместимость). Регистр уже снят в _canon.
+    совместимость). Регистр сохраняется (_canon не меняет сегменты, кроме токена
+    диска).
     """
-    parts = pat_seg.split("*")
-    if len(parts) == 1:                               # нет '*' -> литерал
+    frag = pat_seg.split("*")
+    if len(frag) == 1:                                # нет '*' -> литерал
         return pat_seg == text_seg
-    first, last = parts[0], parts[-1]
-    if not text_seg.startswith(first) or not text_seg.endswith(last):
+    pref, suf = frag[0], frag[-1]
+    if not text_seg.startswith(pref) or not text_seg.endswith(suf):
         return False
-    pos = len(first)
-    region_end = len(text_seg) - len(last)            # суффикс занимает хвост
+    pos = len(pref)
+    region_end = len(text_seg) - len(suf)           # суффикс занимает хвост
     if pos > region_end:                              # префикс и суффикс перекрылись
         return False
-    for mid in parts[1:-1]:
+    for mid in frag[1:-1]:
         if not mid:                                   # пустая часть от соседних '*'
             continue
         idx = text_seg.find(mid, pos, region_end)

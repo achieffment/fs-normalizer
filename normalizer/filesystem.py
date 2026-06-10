@@ -46,7 +46,7 @@ class FilesystemNormalizer:
         # Когда include задан, нельзя обрезать исключённые каталоги: внутри могут
         # быть повторно включённые потомки, до которых надо дойти. Тогда заходим
         # во все нескрытые каталоги, а решение skip/normalize принимаем по объекту.
-        full_scan = self.includer is not None and bool(self.includer.patterns)
+        probe = self.includer is not None and bool(self.includer.patterns)
         items: list[Path] = []
         for dirpath, foldnames, filenames in os.walk(root, topdown=True, followlinks=False):
             base = Path(dirpath)
@@ -55,7 +55,7 @@ class FilesystemNormalizer:
                 if self._hidden(name):
                     continue                          # скрытые не обходим
                 skip = self._skip(base / name)
-                if skip and not full_scan:
+                if skip and not probe:
                     continue                          # обрезаем исключённое поддерево
                 kept_folds.append(name)               # заходим внутрь
                 if not skip:
