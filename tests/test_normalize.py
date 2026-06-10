@@ -544,9 +544,10 @@ def _p(text):
         ("Archive", "/home/user/Archive/file.txt", True),
         ("Archive", "/home/user/MyArchive/file.txt", False),
         ("Archive", "/home/user/Archive2/file.txt", False),
-        # Регистронезависимость (кросс-платформенно):
-        ("archive", "/home/user/Archive/x", True),
-        ("ARCHIVE", "/home/user/archive/x", True),
+        # Регистрозависимость (сегменты as-is; только токен диска — lower):
+        ("Archive", "/home/user/Archive/x", True),
+        ("archive", "/home/user/Archive/x", False),
+        ("ARCHIVE", "/home/user/archive/x", False),
         # Нормализация разделителей: '\\' эквивалентен '/':
         ("Programs\\Composer", "/opt/Programs/Composer/bin", True),
         ("Programs/Composer", "/opt/Programs/Composer/bin", True),
@@ -579,14 +580,14 @@ def test_path_excluder_empty_never_excludes():
 @pytest.mark.parametrize(
     "text, expected",
     [
-        ("Home/Components", ("home", "components")),
-        ("Home/Components/", ("home", "components")),
-        ("/Home/Components", ("home", "components")),
-        ("Home//Components", ("home", "components")),
-        ("///Home///Components///", ("home", "components")),
-        ("  Home/Components  ", ("home", "components")),
+        ("Home/Components", ("Home", "Components")),
+        ("Home/Components/", ("Home", "Components")),
+        ("/Home/Components", ("Home", "Components")),
+        ("Home//Components", ("Home", "Components")),
+        ("///Home///Components///", ("Home", "Components")),
+        ("  Home/Components  ", ("Home", "Components")),
         ("/home//mnt///disk", ("home", "mnt", "disk")),
-        ("Home\\Components\\", ("home", "components")),
+        ("Home\\Components\\", ("Home", "Components")),
         ("", ()),
         ("///", ()),
     ],
@@ -647,6 +648,9 @@ def _path(text):
         # '/mnt/wsl' — не диск (сегмент не одиночная буква):
         ("/mnt/wsl/Programs", "/mnt/wsl/Programs/app", True),
         ("D:\\Programs", "/mnt/wsl/Programs/app", False),
+        # WSL-префикс 'mnt' — литерал (только lowercase):
+        ("MNT/d/Programs", "/mnt/d/Programs/app", False),
+        ("mnt/d/Programs", "/mnt/d/Programs/app", True),
     ],
 )
 def test_crossplatform_matrix(entry, path, excluded):
@@ -657,7 +661,7 @@ def test_crossplatform_drive_token_symmetry():
     # D:\, D:/, /mnt/d, mnt/d -> один канон [d, programs].
     forms = ["D:\\Programs", "D:/Programs", "/mnt/d/Programs", "mnt/d/Programs"]
     canons = {_canon(f) for f in forms}
-    assert canons == {("d", "programs")}
+    assert canons == {("d", "Programs")}
 
 
 # --------------------------------------------------------------------------- #
@@ -881,7 +885,7 @@ def test_deepest_match_depth_index():
 
 
 # --------------------------------------------------------------------------- #
-# Intra-segment glob: '*' внутри сегмента (юнит _seg_glob, регистр уже снят)
+# Intra-segment glob: '*' внутри сегмента (юнит _seg_glob, регистр сохраняется)
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     "pat, text, ok",
@@ -923,6 +927,10 @@ def test_deepest_match_depth_index():
         # '*' + литеральные скобки вместе:
         ("*[1]", "файл [1]", True),
         ("*[1]", "файл [2]", False),
+        # Регистрозависимость intra-segment '*':
+        ("A*", "abc", False),
+        ("*.TXT", "Notes.txt", False),
+        ("*.txt", "notes.txt", True),
     ],
 )
 def test_seg_glob(pat, text, ok):
@@ -937,7 +945,9 @@ def test_seg_glob(pat, text, ok):
         ("*.bak", "/h/u/Docs/notes.txt", False),
         ("tmp*", "/h/tmp_build/x", True),
         ("tmp*", "/h/mytmp/x", False),
-        ("*cache*", "/h/u/AppCache/data", True),
+        ("*cache*", "/h/u/my-cache/data", True),
+        ("*cache*", "/h/u/AppCache/data", False),       # регистр в glob
+        ("*Cache*", "/h/u/AppCache/data", True),
         ("Projects/*/build", "/h/Projects/web/build/out", True),
         ("Projects/*/build", "/h/Projects/build", False),  # '*' — ровно один сегмент
         # Скобки в паттерне — литералы (имена проекта со скобками):
@@ -960,6 +970,37 @@ def test_intra_glob_crossplatform_drive():
     assert _exc("/mnt/d/Prog*").is_excluded(PureWindowsPath("D:\\Programs\\app"))
     # Разные диски не путаются даже с glob:
     assert not _exc("E:\\Prog*").is_excluded(PurePosixPath("/mnt/d/Programs/app"))
+    # Сегмент после диска — регистрозависим:
+    assert not _exc("D:\\prog*").is_excluded(PurePosixPath("/mnt/d/Programs/app"))
+
+
+def test_exclude_case_sensitive_segment(tmp_path):
+    # Паттерн Archive не исключает каталог archive (разный регистр).
+    upper = tmp_path / "Archive"
+    lower = tmp_path / "archive"
+    upper.mkdir()
+    lower.mkdir()
+    (upper / "Файл.txt").write_text("x")
+    (lower / "Файл.txt").write_text("y")
+    exc = _exc("Archive")
+    fs = FilesystemNormalizer(build_normalizer(), exc)
+    fs.apply(tmp_path)
+    assert (upper / "Файл.txt").exists()              # исключён
+    assert (lower / "fail.txt").exists()              # нормализован
+
+
+def test_include_case_sensitive_segment(tmp_path):
+    # Внутри исключённого Home include возвращает только Data с тем же регистром Projects.
+    data = tmp_path / "Home" / "Projects" / "Data"
+    alt = tmp_path / "Home" / "projects" / "data"
+    (data / "Папка").mkdir(parents=True)
+    (alt / "Папка").mkdir(parents=True)
+    exc = _exc("Home")
+    inc = _inc("Home/Projects/**/Data")
+    fs = FilesystemNormalizer(build_normalizer(), exc, inc)
+    fs.apply(tmp_path)
+    assert (data / "Papka").is_dir()                  # re-included
+    assert (alt / "Папка").exists()                 # projects ≠ Projects — не include
 
 
 def test_cross_segment_double_star_positions():
@@ -1005,6 +1046,18 @@ def test_load_includer_patterns_and_blanks(tmp_path):
 
 
 # --- include: e2e override ---
+
+
+def test_fs_include_probe_descends_excluded_dir(tmp_path):
+    # При непустом include обход не обрезает исключённые каталоги (probe): потомок
+    # внутри Archive достижим и нормализуется.
+    data = tmp_path / "Archive" / "nested" / "Data"
+    (data / "Папка").mkdir(parents=True)
+    exc = _exc("Archive")
+    inc = _inc("**/Data")
+    fs = FilesystemNormalizer(build_normalizer(), exc, inc)
+    fs.apply(tmp_path)
+    assert (data / "Papka").is_dir()
 
 
 def test_fs_include_override_nested(tmp_path):
