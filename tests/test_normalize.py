@@ -358,6 +358,55 @@ def test_fsignore_order_reexclude_after_reinclude():
     assert ign.matches(PurePosixPath("build/keep/secret"), False) is True
 
 
+# Реальная пользовательская конфигурация: проекты занятий исключены целиком, но
+# папки Data внутри них возвращаются на любой глубине (!/Activities/*/Projects/**/Data),
+# в т.ч. под исключённым Archive. Проверяем, что затрагиваются ТОЛЬКО папки Data.
+_ACTIVITIES_LINES = (
+    "Archive",
+    "/Activities/*/Projects",
+    "!/Activities/*/Projects/**/Data",
+    "!/Activities/Video/Projects",
+    "/Components",
+    "/Resources/Fonts",
+)
+
+
+@pytest.mark.parametrize(
+    "rel, ignored",
+    [
+        # Проект технического занятия и его содержимое исключены...
+        ("Activities/Web/Projects", True),
+        ("Activities/Web/Projects/Addl", True),
+        ("Activities/Web/Projects/Addl/Archive", True),
+        ("Activities/Web/Projects/Addl/Archive/example.com", True),
+        ("Activities/Web/Projects/Addl/Archive/example.com/Back", True),
+        # ...кроме папок Data (на любой глубине, сквозь сегменты, под Archive):
+        ("Activities/Web/Projects/Addl/Archive/example.com/Data", False),
+        ("Activities/Web/Projects/Addl/Archive/example.com/Data/sub", False),
+        ("Activities/Web/Projects/Self/Data", False),
+        ("Activities/Web/Projects/Data", False),       # ** = ноль сегментов
+        # Сайт-каталог рядом с Archive (НЕ под ним): исключён правилом Projects,
+        # т.е. exclude не зависит от вложенности в Archive; его Data всё равно возвращён:
+        ("Activities/Web/Projects/Addl/another.com", True),
+        ("Activities/Web/Projects/Addl/another.com/Back", True),
+        ("Activities/Web/Projects/Addl/another.com/Data", False),
+        # Возврат только по ТОЧНОМУ сегменту Data: похожие имена остаются исключены:
+        ("Activities/Web/Projects/Addl/Database", True),
+        ("Activities/Web/Projects/Addl/DataX", True),
+        ("Activities/Web/Projects/Addl/My Data", True),
+        # Ресурсы вне Projects не затрагиваются исключением проектов:
+        ("Activities/Web/Resources", False),
+        # Творческое занятие возвращено целиком (включая не-Data содержимое):
+        ("Activities/Video/Projects/Clip/Back", False),
+        # Прочие якорные исключения:
+        ("Components", True),
+        ("Resources/Fonts", True),
+    ],
+)
+def test_fsignore_activities_projects_data(rel, ignored):
+    assert _ign(*_ACTIVITIES_LINES).matches(PurePosixPath(rel), True) is ignored
+
+
 # --------------------------------------------------------------------------- #
 # load_fs_ignore — чтение .fs-ignore из выбранного каталога (корня нормализации)
 # --------------------------------------------------------------------------- #
@@ -572,6 +621,62 @@ def test_fs_negation_probe_descends_ignored_dir(tmp_path):
     fs.apply(tmp_path)
     assert (data / "Papka").is_dir()       # возвращённый потомок нормализован
     assert (tmp_path / "Archive").is_dir()  # промежуточный Archive не тронут
+
+
+def test_fs_activities_projects_data_reincluded(tmp_path):
+    # Реальный кейс: !/Activities/*/Projects/**/Data возвращает к нормализации
+    # ТОЛЬКО папки Data внутри проектов (на любой глубине, под исключённым
+    # Archive), а остальное содержимое проекта (Back, промежуточные каталоги,
+    # соседний с Archive каталог прямо в Addl) остаётся нетронутым и не попадает
+    # в счётчики.
+    addl = tmp_path / "Activities" / "Web" / "Projects" / "Addl"
+    base = addl / "Archive" / "example.com"
+    back = base / "Back"
+    data = base / "Data"
+    back.mkdir(parents=True)
+    data.mkdir(parents=True)
+    (back / "Старый бэкап").write_text("x")        # под Projects, не Data -> исключён
+    (data / "Выгрузка 2021").write_text("y")        # внутри Data -> возвращён
+    # Сайт-каталог рядом с Archive (прямо в проекте, НЕ под Archive): exclude от
+    # правила Projects не зависит от вложенности в Archive. Его Back исключён,
+    # а Data возвращена так же, как у example.com.
+    sib = addl / "another.com"
+    sib_back = sib / "Back"
+    sib_data = sib / "Data"
+    sib_back.mkdir(parents=True)
+    sib_data.mkdir(parents=True)
+    (sib_back / "Прошлый отчёт").write_text("z")   # под Projects, не Data -> исключён
+    (sib_data / "Выгрузка 2022").write_text("w")    # внутри Data -> возвращён
+    # Сайт прямо в Addl вообще без Data: всё содержимое остаётся нетронутым.
+    nodata = addl / "example.com"
+    nodata.mkdir(parents=True)
+    (nodata / "Резервная копия").write_text("r")   # под Projects, не Data -> исключён
+    (tmp_path / ".fs-ignore").write_text(
+        "Archive\n/Activities/*/Projects\n!/Activities/*/Projects/**/Data\n"
+    )
+
+    ign = load_fs_ignore(tmp_path)
+    assert ign is not None
+    renamed, skipped = FilesystemNormalizer(build_normalizer(), ign).apply(tmp_path)
+
+    # Содержимое Data нормализовано (дата -> ISO) в обоих сайтах:
+    assert (data / "vygruzka_2021-00-00").exists()
+    assert (sib_data / "vygruzka_2022-00-00").exists()
+    # Соседний Back и промежуточные исключённые каталоги не тронуты:
+    assert (back / "Старый бэкап").exists()
+    assert back.is_dir()
+    assert base.is_dir()                             # example.com не переименован
+    # Сайт-каталог рядом с Archive и его Back тоже не тронуты:
+    assert (sib_back / "Прошлый отчёт").exists()
+    assert sib.is_dir()                              # another.com не переименован
+    assert sib_back.is_dir()
+    # Сайт без Data полностью не тронут:
+    assert (nodata / "Резервная копия").exists()
+    assert nodata.is_dir()
+    assert (tmp_path / "Activities" / "Web" / "Projects").is_dir()
+    # Посчитаны только два возвращённых файла Data; исключённое в счётчики не попало:
+    assert renamed == 2
+    assert skipped == 0
 
 
 def test_fs_ignore_bracket_class_active(tmp_path):
