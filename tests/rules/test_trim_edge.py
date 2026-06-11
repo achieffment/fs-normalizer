@@ -23,6 +23,17 @@ from normalizer import TrimEdgeRule
         ("(abc", "abc"),
         ("abc]", "abc"),
         ("[abc", "abc"),
+        # '+' и '#' — символы имени, сохраняются по обоим краям:
+        ("C#", "C#"),
+        ("C++", "C++"),
+        ("F#", "F#"),
+        ("notepad++", "notepad++"),
+        ("#tag", "#tag"),
+        ("+note", "+note"),
+        # Прочий мусор всё ещё срезается, в т.ч. за хвостовым '+'/'#':
+        ("C#!", "C#"),
+        ("C++ ", "C++"),
+        ("file!", "file"),
     ],
 )
 def test_trim_edge(raw, expected):

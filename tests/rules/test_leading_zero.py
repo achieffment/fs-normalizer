@@ -28,7 +28,7 @@ def test_leading_zero(raw, expected):
         ("report 5!", "report-05"),
         ("5.", "05"),
         ("file 7;", "file-07"),
-        ("3#", "03"),
+        ("3,", "03"),
     ],
 )
 def test_leading_zero_after_trim_edge(nn, raw, expected):
