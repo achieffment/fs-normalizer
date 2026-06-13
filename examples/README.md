@@ -23,6 +23,9 @@
 ./normalize.command   # macOS (двойной клик в Finder)
 ./normalize.bat       # Windows
 # и укажите папку examples (или конкретную подпапку правила)
+
+# либо сразу аргументом, без диалога (минует интерактивный выбор):
+./normalize.sh examples
 ```
 
 ### 2. Просмотр изменений
